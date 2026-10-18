@@ -30,12 +30,13 @@ jobs:
           QT_QPA_PLATFORM: offscreen
 
       - name: Build exe
-        run: >
-          pyinstaller --noconfirm --onefile --windowed
-          --name "Kalkid-Retro"
-          --icon assets/kalkid.ico
-          --collect-submodules winsdk
-          run.py
+        shell: pwsh
+        run: |
+          $opts = @('--noconfirm', '--onefile', '--windowed', '--name', 'Kalkid-Retro',
+                    '--icon', 'assets/kalkid.ico', '--collect-submodules', 'winsdk')
+          # le logo (assets/logo.png) est embarqué dans l'exe s'il est présent dans le dépôt
+          if (Test-Path assets/logo.png) { $opts += @('--add-data', 'assets/logo.png;assets') }
+          pyinstaller @opts run.py
 
       - uses: actions/upload-artifact@v4
         with:

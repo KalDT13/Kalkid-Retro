@@ -15,6 +15,10 @@ tes actions entre comptes.
 - Presets (ordre, principal, exclusions, autofocus) enregistrables et rechargeables
 - Anti-clignotement des fenêtres dans la barre des tâches
 
+**Vérification des prérequis**
+- L'onglet *Prérequis* contrôle Windows, les notifications, les droits d'exécution, les raccourcis
+  et indique quoi corriger, avec un bouton qui ouvre le bon réglage Windows
+
 **Autofocus par notifications**
 - Passe automatiquement sur le bon personnage quand le jeu envoie une notification Windows :
   combat (« à toi de jouer »), échange, invitation de groupe, message privé
@@ -37,7 +41,8 @@ Tu les utilises à tes risques ; les auteurs déclinent toute responsabilité.
 
 ## Installation
 
-1. Télécharge `Kalkid-Retro.exe` dans la section **Releases** du dépôt.
+1. Télécharge `Kalkid-Retro.exe` depuis la
+   [dernière version](https://github.com/KalDT13/Kalkid-Retro/releases/latest) (section **Releases**).
 2. Lance-le. Windows SmartScreen peut afficher un avertissement (programme non signé) : *Informations
    complémentaires > Exécuter quand même*. L'application intercepte des raccourcis clavier, ce qui
    déclenche cette alerte sur ce type d'outil.
