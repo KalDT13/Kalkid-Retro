@@ -10,6 +10,7 @@ tes actions entre comptes.
 
 **Gestion des fenêtres**
 - Détection automatique des fenêtres Dofus Rétro, ordre des personnages modifiable par glisser-déposer
+- Icône de classe pour chaque personnage (clic sur le rond), ou image personnalisée
 - Fenêtre suivante / précédente / personnage principal ★ via raccourcis configurables
 - Exclusion d'un personnage des raccourcis et des outils
 - Presets (ordre, principal, exclusions, autofocus) enregistrables et rechargeables
@@ -78,6 +79,10 @@ dans les *Issues*.
 
 ## Crédits
 
+- **Illustrations** : le logo (œuf) et les portraits de classes (`assets/`) sont des illustrations
+  d'**Ankama** (Dofus), utilisées ici dans le cadre d'un projet de fan non commercial. Elles ne sont
+  **pas** couvertes par la licence MIT du code et restent la propriété de leurs ayants droit. Sur
+  demande d'Ankama ou de l'auteur, elles seront retirées sans délai.
 - Le principe de l'autofocus par notifications Windows a été popularisé par
   [Dracoon](https://github.com/Slyss49/Dracoon-Dofus) (Slyss49). Kalkid Rétro est une implémentation
   indépendante : aucun code de Dracoon n'y est repris.

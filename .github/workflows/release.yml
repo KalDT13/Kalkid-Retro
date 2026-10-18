@@ -34,8 +34,9 @@ jobs:
         run: |
           $opts = @('--noconfirm', '--onefile', '--windowed', '--name', 'Kalkid-Retro',
                     '--icon', 'assets/kalkid.ico', '--collect-submodules', 'winsdk')
-          # le logo (assets/logo.png) est embarqué dans l'exe s'il est présent dans le dépôt
+          # le logo et les portraits de classes sont embarqués dans l'exe
           if (Test-Path assets/logo.png) { $opts += @('--add-data', 'assets/logo.png;assets') }
+          if (Test-Path assets/portraits) { $opts += @('--add-data', 'assets/portraits;assets/portraits') }
           pyinstaller @opts run.py
 
       - uses: actions/upload-artifact@v4

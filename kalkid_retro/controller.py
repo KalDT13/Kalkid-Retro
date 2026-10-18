@@ -120,6 +120,19 @@ class Controller(QObject):
         if main:
             self.focus_pseudo(main)
 
+    # --- portraits --------------------------------------------------------------
+    def portrait_key(self, pseudo: str) -> str | None:
+        return self.cfg.get("portraits", default={}).get(pseudo)
+
+    def set_portrait(self, pseudo: str, key: str | None) -> None:
+        mapping = dict(self.cfg.get("portraits", default={}))
+        if key:
+            mapping[pseudo] = key
+        else:
+            mapping.pop(pseudo, None)
+        self.cfg.set("portraits", mapping)
+        self.windows_changed.emit()
+
     # --- autofocus --------------------------------------------------------------
     def events_for(self, pseudo: str) -> list[str]:
         events = self.cfg.get("autofocus", "events", default={})

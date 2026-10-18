@@ -23,6 +23,7 @@ DEFAULTS: dict = {
     "order": [],            # pseudos, dans l'ordre de cycle
     "main": "",             # personnage principal
     "excluded": [],         # exclus des raccourcis / outils
+    "portraits": {},        # pseudo -> clé de portrait ("iop_m", "custom_Pseudo"…)
     "autofocus": {
         "enabled": True,
         "debug": False,

@@ -9,13 +9,13 @@ import winreg
 from datetime import datetime
 
 from PySide6.QtCore import QSize, Qt, QTimer
-from PySide6.QtGui import QAction, QColor, QTextCharFormat, QTextCursor
-from PySide6.QtWidgets import (QAbstractItemView, QApplication, QComboBox, QFrame, QGridLayout, QHBoxLayout, QLabel,
-                               QLineEdit, QListWidget, QListWidgetItem, QMainWindow, QMenu, QMessageBox,
-                               QPlainTextEdit, QPushButton, QScrollArea, QSpinBox, QStackedWidget, QSystemTrayIcon,
-                               QVBoxLayout, QWidget)
+from PySide6.QtGui import QAction, QColor, QIcon, QTextCharFormat, QTextCursor
+from PySide6.QtWidgets import (QAbstractItemView, QApplication, QComboBox, QDialog, QFileDialog, QFrame, QGridLayout,
+                               QHBoxLayout, QLabel, QLineEdit, QListWidget, QListWidgetItem, QMainWindow, QMenu,
+                               QMessageBox, QPlainTextEdit, QPushButton, QScrollArea, QSpinBox, QStackedWidget,
+                               QSystemTrayIcon, QVBoxLayout, QWidget)
 
-from . import APP_NAME, __version__, prereq
+from . import APP_NAME, __version__, portraits, prereq
 from .config import EVENTS
 from .controller import Controller
 from .theme import ACCENT2, ERR, MUTED, OK, WARN, make_icon, round_logo
@@ -185,6 +185,72 @@ def columns(left: list[QWidget], right: list[QWidget] | None = None, ratio: tupl
     return area
 
 
+# --- portraits ------------------------------------------------------------------------
+class PortraitDialog(QDialog):
+    """Choix de l'icône d'un personnage : portrait de classe, image personnalisée ou initiale."""
+
+    def __init__(self, ctl: Controller, pseudo: str, parent=None):
+        super().__init__(parent)
+        self.ctl, self.pseudo = ctl, pseudo
+        self.setWindowTitle(f"Icône de {pseudo}")
+        lay = QVBoxLayout(self)
+        lay.setContentsMargins(22, 20, 22, 18)
+        lay.setSpacing(12)
+        lay.addWidget(label(f"Icône de {pseudo}", "cardTitle"))
+        lay.addWidget(label("Choisis la classe et le sexe de ton personnage.", "muted"))
+
+        current = ctl.portrait_key(pseudo)
+        grid = QGridLayout()
+        grid.setSpacing(8)
+        for i, key in enumerate(portraits.available_keys()):
+            btn = QPushButton()
+            btn.setObjectName("portrait")
+            btn.setCheckable(True)
+            btn.setChecked(key == current)
+            btn.setFixedSize(76, 76)
+            btn.setIconSize(QSize(60, 60))
+            pix = portraits.pixmap(key, 120)
+            if pix is not None:
+                btn.setIcon(QIcon(pix))
+            btn.setToolTip(portraits.LABELS.get(key, key))
+            btn.clicked.connect(lambda _=False, k=key: self._choose(k))
+            grid.addWidget(btn, i // 6, i % 6)
+        holder = QWidget()
+        holder.setLayout(grid)
+        lay.addWidget(holder)
+
+        actions = QHBoxLayout()
+        none = QPushButton("Aucune icône")
+        none.clicked.connect(lambda: self._choose(None))
+        custom = QPushButton("Image personnalisée…")
+        custom.clicked.connect(self._custom)
+        close = QPushButton("Fermer")
+        close.clicked.connect(self.reject)
+        actions.addWidget(none)
+        actions.addWidget(custom)
+        actions.addStretch(1)
+        actions.addWidget(close)
+        lay.addLayout(actions)
+
+    def _choose(self, key):
+        self.ctl.set_portrait(self.pseudo, key)
+        self.accept()
+
+    def _custom(self):
+        path, _ = QFileDialog.getOpenFileName(self, "Choisir une image", "", "Images (*.png *.jpg *.jpeg *.webp)")
+        if not path:
+            return
+        key = portraits.set_custom(self.pseudo, path)
+        if key:
+            self._choose(key)
+        else:
+            QMessageBox.warning(self, "Icône", "Impossible de lire cette image.")
+
+
+def open_portrait_dialog(ctl: Controller, pseudo: str, parent: QWidget) -> None:
+    PortraitDialog(ctl, pseudo, parent).exec()
+
+
 # --- page Personnages -----------------------------------------------------------------
 class CharacterRow(QFrame):
     def __init__(self, ctl: Controller, pseudo: str):
@@ -197,7 +263,10 @@ class CharacterRow(QFrame):
         online = pseudo in ctl.windows
         is_main = ctl.cfg.get("main", default="") == pseudo
 
-        lay.addWidget(Avatar(pseudo, online))
+        # le dialogue s'ouvre après le retour de l'événement souris (la ligne peut être reconstruite)
+        lay.addWidget(Avatar(pseudo, online, 42, portraits.pixmap(ctl.portrait_key(pseudo), 84),
+                             on_click=lambda: QTimer.singleShot(0, lambda: open_portrait_dialog(
+                                 ctl, pseudo, self.window()))))
         texts = QVBoxLayout()
         texts.setSpacing(0)
         name = label(pseudo, "cardTitle")

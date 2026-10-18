@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from PySide6.QtCore import Property, QEasingCurve, QPropertyAnimation, QRectF, QSize, Qt
-from PySide6.QtGui import QColor, QFont, QLinearGradient, QPainter, QPen
+from PySide6.QtGui import QColor, QFont, QLinearGradient, QPainter, QPainterPath, QPen
 from PySide6.QtWidgets import QAbstractButton, QWidget
 
 from . import theme
@@ -138,14 +138,25 @@ _AVATAR_COLORS = [("#FF9A62", "#FF5A36"), ("#7C8CFF", "#4B5BFF"), ("#3DDC84", "#
 class Avatar(QWidget):
     """Pastille ronde avec l'initiale du personnage et un voyant de connexion."""
 
-    def __init__(self, name: str, online: bool, size: int = 42, parent=None):
+    def __init__(self, name: str, online: bool, size: int = 42, portrait=None, on_click=None, parent=None):
         super().__init__(parent)
         self.name, self.online = name, online
+        self.portrait = portrait          # QPixmap ou None (initiale)
+        self._on_click = on_click
         self.setFixedSize(size, size)
+        if on_click:
+            self.setCursor(Qt.CursorShape.PointingHandCursor)
+            self.setToolTip("Changer l'icône")
+
+    def mouseReleaseEvent(self, event):
+        if self._on_click and event.button() == Qt.MouseButton.LeftButton:
+            self._on_click()
+        super().mouseReleaseEvent(event)
 
     def paintEvent(self, _event):
         p = QPainter(self)
         p.setRenderHint(QPainter.RenderHint.Antialiasing)
+        p.setRenderHint(QPainter.RenderHint.SmoothPixmapTransform)
         d = min(self.width(), self.height()) - 4
         circle = QRectF(2, 2, d, d)
         c1, c2 = _AVATAR_COLORS[sum(map(ord, self.name)) % len(_AVATAR_COLORS)]
@@ -155,12 +166,24 @@ class Avatar(QWidget):
         p.setPen(Qt.PenStyle.NoPen)
         p.setBrush(grad)
         p.drawEllipse(circle)
-        font = QFont(self.font())
-        font.setPointSizeF(12)
-        font.setWeight(QFont.Weight.ExtraBold)
-        p.setFont(font)
-        p.setPen(QColor("white" if self.online else "#9A9AA3"))
-        p.drawText(circle, Qt.AlignmentFlag.AlignCenter, (self.name[:1] or "?").upper())
+        if self.portrait is not None and not self.portrait.isNull():
+            clip = QPainterPath()
+            clip.addEllipse(circle)
+            p.save()
+            p.setClipPath(clip)
+            if not self.online:
+                p.setOpacity(0.45)
+            pad = d * 0.04
+            target = QRectF(circle.left() + pad, circle.top() + pad, d - 2 * pad, d - 2 * pad)
+            p.drawPixmap(target.toRect(), self.portrait)
+            p.restore()
+        else:
+            font = QFont(self.font())
+            font.setPointSizeF(12)
+            font.setWeight(QFont.Weight.ExtraBold)
+            p.setFont(font)
+            p.setPen(QColor("white" if self.online else "#9A9AA3"))
+            p.drawText(circle, Qt.AlignmentFlag.AlignCenter, (self.name[:1] or "?").upper())
         dot = QRectF(self.width() - 12, self.height() - 12, 10, 10)
         p.setPen(QPen(QColor(theme.CARD), 2))
         p.setBrush(QColor(theme.OK if self.online else "#5A5A62"))
