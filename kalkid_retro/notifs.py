@@ -48,6 +48,17 @@ class GameNotification:
     event: str | None    # "combat", "echange", "groupe", "mp" ou None si inconnu
 
 
+# Le titre de la notification est celui de la fenêtre du jeu : « Pseudo - Dofus Retro v1.49.7 »
+TITLE_RE = re.compile(r"^(?P<pseudo>.+?)\s*-\s*Dofus", re.IGNORECASE)
+
+
+def pseudo_from_title(title: str) -> str:
+    """Pseudo du personnage à partir du titre de la notification (ou le titre tel quel s'il est déjà un pseudo)."""
+    title = (title or "").strip()
+    match = TITLE_RE.match(title)
+    return match.group("pseudo").strip() if match else title
+
+
 def classify(body: str) -> str | None:
     for key, pattern in EVENT_PATTERNS:
         if pattern.search(body):
@@ -246,6 +257,6 @@ class NotificationWatcher:
         texts = [t.text for t in binding.get_text_elements()]
         if not texts:
             return
-        pseudo, body = texts[0].strip(), " ".join(texts[1:]).strip()
+        pseudo, body = pseudo_from_title(texts[0]), " ".join(texts[1:]).strip()
         self.read_count += 1
         self._on_notification(GameNotification(pseudo, body, classify(body)))
