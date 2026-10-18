@@ -1,0 +1,50 @@
+name: Build & Release
+
+on:
+  push:
+    branches: [main]      # vérifie que l'exe se construit (artefact téléchargeable dans l'onglet Actions)
+    tags: ["v*"]          # un tag vX.Y.Z publie l'exe dans les Releases
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt pyinstaller
+
+      - name: Generate icon
+        run: python tools/make_icon.py
+        env:
+          QT_QPA_PLATFORM: offscreen
+
+      - name: Build exe
+        run: >
+          pyinstaller --noconfirm --onefile --windowed
+          --name "Kalkid-Retro"
+          --icon assets/kalkid.ico
+          --collect-submodules winsdk
+          run.py
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: Kalkid-Retro
+          path: dist/Kalkid-Retro.exe
+
+      - name: Publish release
+        if: startsWith(github.ref, 'refs/tags/')
+        uses: softprops/action-gh-release@v2
+        with:
+          files: dist/Kalkid-Retro.exe
+          generate_release_notes: true
