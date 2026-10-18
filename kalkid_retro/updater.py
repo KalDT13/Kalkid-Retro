@@ -61,21 +61,37 @@ def _open(url: str, timeout: int = 15):
     return urllib.request.urlopen(request, timeout=timeout)
 
 
-def fetch_latest() -> UpdateInfo | None:
-    """Dernière release publiée, ou None si aucune.
+def _info_from_tag(tag: str, page: str) -> UpdateInfo:
+    base = f"https://github.com/{REPO}/releases/download/{tag}"
+    return UpdateInfo(tag.lstrip("vV"), f"{base}/{ASSET_NAME}", 0, f"{base}/{ASSET_NAME}.sha256", page)
 
-    On suit la redirection de github.com/<repo>/releases/latest vers .../releases/tag/<vX.Y.Z> :
-    contrairement à l'API GitHub, cette adresse n'est pas soumise à la limite de requêtes.
-    """
+
+def _latest_from_api() -> UpdateInfo | None:
+    """API GitHub : toujours à jour, mais limitée à 60 requêtes par heure et par adresse IP."""
+    request = urllib.request.Request(API_LATEST, headers={"User-Agent": USER_AGENT,
+                                                          "Accept": "application/vnd.github+json"})
+    with urllib.request.urlopen(request, timeout=15) as response:
+        data = json.load(response)
+    tag = data.get("tag_name", "")
+    return _info_from_tag(tag, data.get("html_url", RELEASES_PAGE)) if tag else None
+
+
+def _latest_from_redirect() -> UpdateInfo | None:
+    """Redirection de github.com/<repo>/releases/latest : sans limite de requêtes, mais mise en cache
+    quelques minutes par GitHub après une nouvelle publication."""
     request = urllib.request.Request(RELEASES_PAGE, method="HEAD", headers={"User-Agent": USER_AGENT})
     with urllib.request.urlopen(request, timeout=15) as response:
         final_url = response.geturl()
     match = re.search(r"/releases/tag/([^/?#]+)", final_url)
-    if not match:
-        return None
-    tag = match.group(1)
-    base = f"https://github.com/{REPO}/releases/download/{tag}"
-    return UpdateInfo(tag.lstrip("vV"), f"{base}/{ASSET_NAME}", 0, f"{base}/{ASSET_NAME}.sha256", final_url)
+    return _info_from_tag(match.group(1), final_url) if match else None
+
+
+def fetch_latest() -> UpdateInfo | None:
+    """Dernière release publiée, ou None si aucune. API d'abord (à jour), redirection en secours."""
+    try:
+        return _latest_from_api()
+    except Exception:           # limite de requêtes, pas de réseau vers l'API, etc.
+        return _latest_from_redirect()
 
 
 def is_frozen() -> bool:
