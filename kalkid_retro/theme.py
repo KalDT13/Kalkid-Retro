@@ -73,6 +73,8 @@ QPushButton#primary:disabled {{ background: #26262A; color: #5A5A62; }}
 QPushButton#heroBtn {{ background: #1A1A1D; color: white; padding: 11px 22px; font-weight: 700; border-radius: 19px; }}
 QPushButton#heroBtn:hover {{ background: #26262A; }}
 QDialog {{ background: {BG}; }}
+QProgressBar {{ background: {FIELD}; border: none; border-radius: 4px; }}
+QProgressBar::chunk {{ border-radius: 4px; background: qlineargradient(x1:0, y1:0, x2:1, y2:0, stop:0 {ACCENT2}, stop:1 {ACCENT}); }}
 QPushButton#portrait {{ padding: 0; border-radius: 16px; background: {FIELD}; border: 1px solid transparent; }}
 QPushButton#portrait:hover {{ background: {FIELD_HOVER}; }}
 QPushButton#portrait:checked {{ background: rgba(255,90,54,22%); border: 1px solid {ACCENT}; }}

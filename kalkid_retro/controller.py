@@ -12,6 +12,7 @@ from . import winutil
 from .config import EVENTS, Config
 from .hotkeys import HookManager
 from .notifs import GameNotification, NotificationWatcher
+from .updater import Updater
 
 
 class Controller(QObject):
@@ -42,6 +43,7 @@ class Controller(QObject):
                                           lambda: bool(winutil.list_windows()))
         self.notif_count = 0
         self.focus_count = 0
+        self.updater = Updater()
 
     # --- cycle de vie -----------------------------------------------------------
     def start(self) -> None:
@@ -50,6 +52,8 @@ class Controller(QObject):
         self.hooks.start()
         if self.cfg.get("autofocus", "enabled", default=True):
             self.notifs.start()
+        if self.cfg.get("settings", "check_updates", default=True):
+            threading.Timer(4.0, self.updater.check).start()   # une seule vérification, en arrière-plan
         threading.Thread(target=self._anti_flash_loop, daemon=True, name="kalkid-flash").start()
 
     def _on_foreground(self, hwnd: int) -> None:

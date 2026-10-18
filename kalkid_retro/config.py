@@ -56,6 +56,7 @@ DEFAULTS: dict = {
         "close_to_tray": True,
         "start_hidden": False,
         "warning_ack": False,
+        "check_updates": True,      # vérifie la dernière version au lancement
     },
 }
 

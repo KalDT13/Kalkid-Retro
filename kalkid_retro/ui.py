@@ -12,10 +12,10 @@ from PySide6.QtCore import QSize, Qt, QTimer
 from PySide6.QtGui import QAction, QColor, QIcon, QTextCharFormat, QTextCursor
 from PySide6.QtWidgets import (QAbstractItemView, QApplication, QComboBox, QDialog, QFileDialog, QFrame, QGridLayout,
                                QHBoxLayout, QLabel, QLineEdit, QListWidget, QListWidgetItem, QMainWindow, QMenu,
-                               QMessageBox, QPlainTextEdit, QPushButton, QScrollArea, QSpinBox, QStackedWidget,
-                               QSystemTrayIcon, QVBoxLayout, QWidget)
+                               QMessageBox, QPlainTextEdit, QProgressBar, QPushButton, QScrollArea, QSpinBox,
+                               QStackedWidget, QSystemTrayIcon, QVBoxLayout, QWidget)
 
-from . import APP_NAME, __version__, portraits, prereq
+from . import APP_NAME, __version__, portraits, prereq, updater
 from .config import EVENTS
 from .controller import Controller
 from .theme import ACCENT2, ERR, MUTED, OK, WARN, make_icon, round_logo
@@ -803,6 +803,100 @@ def _set_autostart(enabled: bool) -> None:
         pass
 
 
+class UpdateCard(QFrame):
+    """Vérification des mises à jour et installation de la dernière version."""
+
+    def __init__(self, ctl: Controller):
+        super().__init__()
+        self.setObjectName("card")
+        self.ctl = ctl
+        lay = QVBoxLayout(self)
+        lay.setContentsMargins(18, 14, 18, 14)
+        lay.setSpacing(8)
+        lay.addWidget(label("Mises à jour", "cardTitle"))
+        self.status = label(f"Version installée : v{__version__}", "muted", wrap=True)
+        lay.addWidget(self.status)
+        self.bar = QProgressBar()
+        self.bar.setRange(0, 100)
+        self.bar.setTextVisible(False)
+        self.bar.setFixedHeight(8)
+        self.bar.hide()
+        lay.addWidget(self.bar)
+        row = QHBoxLayout()
+        self.check_btn = QPushButton("Vérifier les mises à jour")
+        self.check_btn.clicked.connect(self._check)
+        self.update_btn = QPushButton("Mettre à jour")
+        self.update_btn.setObjectName("primary")
+        self.update_btn.clicked.connect(self._install)
+        self.update_btn.hide()
+        self.page_btn = QPushButton("Ouvrir la page de téléchargement")
+        self.page_btn.clicked.connect(lambda: os.startfile(updater.RELEASES_PAGE))
+        self.page_btn.hide()
+        row.addWidget(self.check_btn)
+        row.addWidget(self.update_btn)
+        row.addWidget(self.page_btn)
+        row.addStretch(1)
+        lay.addLayout(row)
+        lay.addLayout(field_row("Vérifier au lancement",
+                                make_switch(ctl.cfg.get("settings", "check_updates", default=True),
+                                            lambda v: ctl.cfg.set("settings", "check_updates", v))))
+        up = ctl.updater
+        up.checked.connect(self._checked)
+        up.progress.connect(self.bar.setValue)
+        up.failed.connect(self._failed)
+        up.installing.connect(self._installing)
+        if up.info is not None:
+            self._show_available(up.info)
+
+    def _check(self):
+        self.check_btn.setEnabled(False)
+        self.status.setStyleSheet("")
+        self.status.setText("Vérification en cours…")
+        self.ctl.updater.check()
+
+    def _show_available(self, info):
+        self.status.setStyleSheet(f"color: {ACCENT2};")
+        self.status.setText(f"Nouvelle version disponible : v{info.version}  (installée : v{__version__})")
+        self.update_btn.setText(f"Mettre à jour vers v{info.version}")
+        self.update_btn.show()
+        self.page_btn.hide()
+
+    def _checked(self, info, error: str):
+        self.check_btn.setEnabled(True)
+        if error:
+            self.status.setStyleSheet(f"color: {ERR};")
+            self.status.setText(error)
+            self.update_btn.hide()
+        elif info is not None:
+            self._show_available(info)
+        else:
+            self.status.setStyleSheet(f"color: {OK};")
+            self.status.setText(f"Tu as la dernière version (v{__version__}) ✓")
+            self.update_btn.hide()
+
+    def _install(self):
+        self.update_btn.setEnabled(False)
+        self.check_btn.setEnabled(False)
+        self.bar.setValue(0)
+        self.bar.show()
+        self.status.setStyleSheet("")
+        self.status.setText("Téléchargement de la mise à jour…")
+        self.ctl.updater.install()
+
+    def _failed(self, message: str):
+        self.bar.hide()
+        self.update_btn.setEnabled(True)
+        self.check_btn.setEnabled(True)
+        self.status.setStyleSheet(f"color: {ERR};")
+        self.status.setText(message)
+        self.page_btn.show()
+
+    def _installing(self):
+        self.status.setStyleSheet(f"color: {OK};")
+        self.status.setText("Mise à jour téléchargée : redémarrage de l'application…")
+        QTimer.singleShot(600, self.window().quit_app)
+
+
 class SettingsPage(QWidget):
     def __init__(self, ctl: Controller):
         super().__init__()
@@ -819,6 +913,7 @@ class SettingsPage(QWidget):
             "Kalkid Rétro est une implémentation indépendante, sans code repris de Dracoon. Cet outil n'est "
             "pas affilié à Ankama.", "muted", wrap=True))
         left = [
+            UpdateCard(ctl),
             option_row("Réduire dans la zone de notification", "La croix de la fenêtre range l'application près "
                        "de l'horloge au lieu de la fermer.",
                        make_switch(cfg.get("settings", "close_to_tray", default=True),
@@ -895,6 +990,13 @@ class MainWindow(QMainWindow):
         self.nav_items[0].setChecked(True)
         sl.addStretch(1)
 
+        self.update_chip = QPushButton()
+        self.update_chip.setObjectName("primary")
+        self.update_chip.setCursor(Qt.CursorShape.PointingHandCursor)
+        self.update_chip.clicked.connect(lambda: self._goto(5))
+        self.update_chip.hide()
+        sl.addWidget(self.update_chip)
+        ctl.updater.checked.connect(self._update_checked)
         self.chip = label("", "tag")
         self.subtitle = label("", "muted")
         sl.addWidget(self.chip, 0, Qt.AlignmentFlag.AlignLeft)
@@ -945,6 +1047,14 @@ class MainWindow(QMainWindow):
         self.refresh_timer = QTimer(self, interval=3000, timeout=ctl.refresh_windows)
         self.prereq_timer = QTimer(self, interval=5000, timeout=self.update_prereq)
         QTimer.singleShot(2500, self.update_prereq)   # laisse à l'accès aux notifications le temps de répondre
+
+    def _update_checked(self, info, _error: str):
+        """Pastille dans le menu quand une nouvelle version est disponible."""
+        if info is not None:
+            self.update_chip.setText(f"⬆  Mise à jour v{info.version}")
+            self.update_chip.show()
+        else:
+            self.update_chip.hide()
 
     def _goto(self, index: int):
         self.stack.setCurrentIndex(index)
