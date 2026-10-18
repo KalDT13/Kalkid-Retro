@@ -150,7 +150,10 @@ def make_icon(size: int = 256) -> QIcon:
 
 
 def round_logo(size: int) -> QPixmap:
-    """Logo rogné en cercle avec un fin liseré orange (en-tête de l'application)."""
+    """Logo de l'en-tête : le logo détouré tel quel (sans cadre) ; sinon pastille ronde générée."""
+    if logo_path():
+        return logo_pixmap(size * 2).scaled(size, size, Qt.AspectRatioMode.KeepAspectRatio,
+                                            Qt.TransformationMode.SmoothTransformation)
     src = logo_pixmap(size * 2)
     out = QPixmap(size * 2, size * 2)
     out.fill(Qt.GlobalColor.transparent)
