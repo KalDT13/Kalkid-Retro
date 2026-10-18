@@ -141,6 +141,23 @@ class HotkeyButton(QPushButton):
             self._refresh()
 
 
+class ChatCaptureButton(QPushButton):
+    """Passe sur la fenêtre du jeu puis mémorise le prochain clic gauche comme position du chat."""
+
+    IDLE = "Définir sur le jeu"
+
+    def __init__(self, ctl: Controller):
+        super().__init__(self.IDLE)
+        self.setObjectName("primary")
+        self.setCursor(Qt.CursorShape.PointingHandCursor)
+        self.clicked.connect(ctl.start_chat_capture)
+        ctl.chat_capture_state.connect(self._state)
+
+    def _state(self, active: bool):
+        self.setEnabled(not active)
+        self.setText("Clique sur le chat…  (Échap = annuler)" if active else self.IDLE)
+
+
 def page_frame(title: str, subtitle: str, body: QWidget, right: QWidget | None = None) -> QWidget:
     """En-tête de page (titre, sous-titre, action à droite) + contenu."""
     page = QWidget()
@@ -702,9 +719,10 @@ class ToolsPage(QWidget):
         gl.addLayout(field_row("Chef de groupe", self.leader))
         self.chat_pos = label("")
         self.chat_pos.setStyleSheet(f"color: {ACCENT2}; font-weight: 700;")
-        gl.addLayout(field_row("Position du chat", self.chat_pos, HotkeyButton(ctl, "capture_chat")))
-        gl.addWidget(label("Place la souris sur le champ de saisie du chat dans le jeu, puis presse la touche "
-                           "ci-dessus.", "muted", wrap=True))
+        gl.addLayout(field_row("Position du chat", self.chat_pos, ChatCaptureButton(ctl)))
+        gl.addWidget(label("Clique sur le bouton : la fenêtre du jeu passe au premier plan, puis clique sur le "
+                           "champ de saisie du chat. La position est enregistrée (ce clic n'est pas envoyé au "
+                           "jeu).", "muted", wrap=True))
         gl.addLayout(field_row("Attente après /invite",
                                spin(cfg.get("tools", "invite_wait", default=200), 0, 5000, set_tool("invite_wait"))))
         gl.addLayout(field_row("Pause entre deux invités",
@@ -1026,6 +1044,7 @@ class MainWindow(QMainWindow):
 
         ctl.windows_changed.connect(self.update_status)
         ctl.info_changed.connect(self.update_status)
+        ctl.capture_finished.connect(self._capture_finished)
         self.update_status()
 
         self.tray = QSystemTrayIcon(make_icon(), self)
@@ -1047,6 +1066,13 @@ class MainWindow(QMainWindow):
         self.refresh_timer = QTimer(self, interval=3000, timeout=ctl.refresh_windows)
         self.prereq_timer = QTimer(self, interval=5000, timeout=self.update_prereq)
         QTimer.singleShot(2500, self.update_prereq)   # laisse à l'accès aux notifications le temps de répondre
+
+    def _capture_finished(self, ok: bool, message: str):
+        """Après la capture du chat : on revient sur Kalkid Rétro pour montrer le résultat."""
+        self.show_window()
+        self._goto(4)
+        if not ok:
+            QMessageBox.information(self, "Position du chat", message)
 
     def _update_checked(self, info, _error: str):
         """Pastille dans le menu quand une nouvelle version est disponible."""

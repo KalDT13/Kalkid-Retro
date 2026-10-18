@@ -20,6 +20,8 @@ class Controller(QObject):
     windows_changed = Signal()
     info_changed = Signal()           # texte d'état (dernier clic, compteurs…)
     chat_pos_changed = Signal()
+    chat_capture_state = Signal(bool)     # True pendant l'attente du clic sur le chat
+    capture_finished = Signal(bool, str)  # succès, message
     hotkey_captured = Signal(str, str)  # nom de l'action, raccourci capturé
 
     def __init__(self, config: Config):
@@ -30,6 +32,7 @@ class Controller(QObject):
         self.last_gaps: list[int] = []
         self._busy_click = False
         self._busy_invite = False
+        self._capturing_chat = False
         self._stop = threading.Event()
 
         # Mis à jour par un thread : les hooks ne doivent jamais interroger Windows (trop lent)
@@ -189,7 +192,6 @@ class Controller(QObject):
         if tools.get("clicks_enabled"):
             bindings[hk.get("click_all", "")] = (lambda: self.click_all(False), True)
         if tools.get("invite_enabled"):
-            bindings[hk.get("capture_chat", "")] = (self.capture_chat, True)
             bindings[hk.get("invite", "")] = (self.invite_group, True)
         self.hooks.set_bindings({k: v for k, v in bindings.items() if k})
 
@@ -245,15 +247,48 @@ class Controller(QObject):
                     winutil.stop_flash(win.hwnd)
 
     # --- invitation de groupe ---------------------------------------------------
-    def capture_chat(self) -> None:
+    def start_chat_capture(self) -> None:
+        """Passe sur une fenêtre Dofus ; le prochain clic gauche mémorise la position du chat."""
+        if self._capturing_chat:
+            return
+        self.refresh_windows()
+        leader = self.windows.get(self.cfg.get("tools", "leader", default="")) or self.windows.get(
+            self.cfg.get("main", default=""))
+        target = leader or next(iter(self.active_windows()), None) or next(iter(self.windows.values()), None)
+        if target is None:
+            self.log.emit("error", "Aucune fenêtre Dofus Rétro ouverte : lance le jeu d'abord.")
+            self.capture_finished.emit(False, "Aucune fenêtre Dofus Rétro ouverte.")
+            return
+        winutil.focus(target.hwnd)
+        self._capturing_chat = True
+        self.chat_capture_state.emit(True)
+        self.hooks.capture_click(self._on_chat_click, lambda: self._end_chat_capture(False, "Annulé."))
+        # sécurité : on abandonne si l'utilisateur ne clique pas
+        self._capture_timer = threading.Timer(45.0, lambda: self._end_chat_capture(False, "Délai dépassé."))
+        self._capture_timer.start()
+
+    def _on_chat_click(self) -> None:
         hwnd = winutil.foreground_hwnd()
         if not hwnd or not winutil.foreground_pseudo():
+            self._end_chat_capture(False, "Le clic n'était pas dans une fenêtre Dofus Rétro.")
             return
         x, y = winutil.cursor_client_pos(hwnd)
         self.cfg.set("tools", "chat_x", x)
         self.cfg.set("tools", "chat_y", y)
         self.log.emit("ok", f"Position du chat enregistrée : {x} / {y}")
         self.chat_pos_changed.emit()
+        self._end_chat_capture(True, f"Position du chat enregistrée : X {x} · Y {y}")
+
+    def _end_chat_capture(self, ok: bool, message: str) -> None:
+        timer = getattr(self, "_capture_timer", None)
+        if timer is not None:
+            timer.cancel()
+        self.hooks.cancel_click_capture()
+        if not self._capturing_chat:
+            return
+        self._capturing_chat = False
+        self.chat_capture_state.emit(False)
+        self.capture_finished.emit(ok, message)
 
     def invite_group(self) -> None:
         if self._busy_invite:

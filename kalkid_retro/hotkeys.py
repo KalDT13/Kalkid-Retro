@@ -13,6 +13,7 @@ kernel32 = ctypes.WinDLL("kernel32", use_last_error=True)
 
 WH_KEYBOARD_LL, WH_MOUSE_LL = 13, 14
 WM_KEYDOWN, WM_KEYUP, WM_SYSKEYDOWN, WM_SYSKEYUP = 0x0100, 0x0101, 0x0104, 0x0105
+WM_LBUTTONDOWN, WM_LBUTTONUP = 0x0201, 0x0202
 WM_MBUTTONDOWN, WM_MBUTTONUP = 0x0207, 0x0208
 WM_QUIT = 0x0012
 
@@ -140,6 +141,8 @@ class HookManager:
         self._middle_enabled: Callable[[], bool] = lambda: False
         self._condition: Callable[[], bool] = lambda: True
         self._capture: Callable[[str], None] | None = None
+        self._click_capture: tuple[Callable[[], None], Callable[[], None]] | None = None
+        self._swallow_up = False
         self._lock = threading.Lock()
         self._pressed: set[int] = set()
         self._queue: queue.Queue = queue.Queue()
@@ -196,6 +199,15 @@ class HookManager:
 
     def cancel_capture(self) -> None:
         self._capture = None
+
+    def capture_click(self, on_click: Callable[[], None], on_cancel: Callable[[], None]) -> None:
+        """Le prochain clic gauche est consommé (il n'atteint pas le jeu) et déclenche on_click ;
+        la touche Échap annule et déclenche on_cancel."""
+        self._swallow_up = False
+        self._click_capture = (on_click, on_cancel)
+
+    def cancel_click_capture(self) -> None:
+        self._click_capture = None
 
     # --- cycle de vie -----------------------------------------------------------
     def start(self) -> None:
@@ -265,6 +277,12 @@ class HookManager:
         return user32.CallNextHookEx(None, n_code, w_param, l_param)
 
     def _handle_key(self, vk: int, first: bool) -> bool:
+        click_cap = self._click_capture
+        if click_cap is not None and vk == 0x1B:          # Échap : annule la capture du clic
+            if first:
+                self._click_capture = None
+                self._queue.put(click_cap[1])
+            return True
         mods = _current_mods()
         cap = self._capture
         if cap is not None:
@@ -286,6 +304,18 @@ class HookManager:
 
     def _mouse_proc(self, n_code, w_param, l_param):
         try:
+            if n_code >= 0 and w_param in (WM_LBUTTONDOWN, WM_LBUTTONUP):
+                info = ctypes.cast(l_param, ctypes.POINTER(MSLLHOOKSTRUCT)).contents
+                if not (info.flags & MOUSE_INJECTED):
+                    cap = self._click_capture
+                    if cap is not None and w_param == WM_LBUTTONDOWN:
+                        self._click_capture = None
+                        self._swallow_up = True
+                        self._queue.put(cap[0])
+                        return 1                            # ce clic n'atteint pas le jeu
+                    if self._swallow_up and w_param == WM_LBUTTONUP:
+                        self._swallow_up = False
+                        return 1
             if n_code >= 0 and w_param in (WM_MBUTTONDOWN, WM_MBUTTONUP):
                 info = ctypes.cast(l_param, ctypes.POINTER(MSLLHOOKSTRUCT)).contents
                 if (not (info.flags & MOUSE_INJECTED) and self._middle is not None
