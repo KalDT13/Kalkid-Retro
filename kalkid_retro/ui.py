@@ -1,4 +1,4 @@
-"""Interface PySide6 de Kalkid Rétro (design moderne : cartes arrondies, dégradés, navigation circulaire)."""
+"""Interface PySide6 de Kalkid Rétro : application de bureau (menu latéral, fenêtre large, deux colonnes)."""
 
 from __future__ import annotations
 
@@ -10,16 +10,16 @@ from datetime import datetime
 
 from PySide6.QtCore import QSize, Qt, QTimer
 from PySide6.QtGui import QAction, QColor, QTextCharFormat, QTextCursor
-from PySide6.QtWidgets import (QAbstractItemView, QApplication, QComboBox, QFrame, QHBoxLayout, QLabel, QLineEdit,
-                               QListWidget, QListWidgetItem, QMainWindow, QMenu, QMessageBox, QPlainTextEdit,
-                               QPushButton, QScrollArea, QSpinBox, QStackedWidget, QSystemTrayIcon, QVBoxLayout,
-                               QWidget)
+from PySide6.QtWidgets import (QAbstractItemView, QApplication, QComboBox, QFrame, QGridLayout, QHBoxLayout, QLabel,
+                               QLineEdit, QListWidget, QListWidgetItem, QMainWindow, QMenu, QMessageBox,
+                               QPlainTextEdit, QPushButton, QScrollArea, QSpinBox, QStackedWidget, QSystemTrayIcon,
+                               QVBoxLayout, QWidget)
 
 from . import APP_NAME, __version__, prereq
 from .config import EVENTS
 from .controller import Controller
-from .theme import ACCENT, ACCENT2, ERR, MUTED, OK, WARN, make_icon, round_logo
-from .widgets import Avatar, NavButton, Switch
+from .theme import ACCENT2, ERR, MUTED, OK, WARN, make_icon, round_logo
+from .widgets import Avatar, SideNavItem, Switch
 
 EVENT_ICONS = {"combat": "⚔", "mp": "💬", "groupe": "👥", "echange": "🔄"}
 RUN_KEY = r"Software\Microsoft\Windows\CurrentVersion\Run"
@@ -29,6 +29,12 @@ MACRO_WARNING = (
     "automatiques). Ankama tolère les outils de gestion de fenêtres mais interdit les macros : ton compte "
     "pourrait être sanctionné. Ils sont désactivés par défaut. Tu les utilises à tes risques."
 )
+
+# largeurs fixes partagées par l'en-tête et les lignes de personnages (colonnes alignées)
+CHIP = 34
+CHIP_GAP = 6
+EVENTS_WIDTH = len(EVENT_ICONS) * CHIP + (len(EVENT_ICONS) - 1) * CHIP_GAP
+EXCLUDE_WIDTH = 78
 
 
 # --- briques communes -----------------------------------------------------------------
@@ -44,7 +50,7 @@ def card(object_name: str = "card") -> tuple[QFrame, QVBoxLayout]:
     frame = QFrame()
     frame.setObjectName(object_name)
     lay = QVBoxLayout(frame)
-    lay.setContentsMargins(20, 16, 20, 16)
+    lay.setContentsMargins(18, 14, 18, 14)
     lay.setSpacing(8)
     return frame, lay
 
@@ -60,7 +66,7 @@ def option_row(title: str, desc: str, control: QWidget) -> QFrame:
     row = QHBoxLayout()
     row.setSpacing(14)
     texts = QVBoxLayout()
-    texts.setSpacing(3)
+    texts.setSpacing(2)
     texts.addWidget(label(title, "cardTitle"))
     if desc:
         texts.addWidget(label(desc, "muted", wrap=True))
@@ -80,72 +86,35 @@ def field_row(text: str, *controls: QWidget) -> QHBoxLayout:
     return row
 
 
-def scroll_page(*widgets: QWidget) -> QScrollArea:
-    area = QScrollArea()
-    area.setWidgetResizable(True)
-    area.setFrameShape(QFrame.Shape.NoFrame)
-    area.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
-    inner = QWidget()
-    inner.setObjectName("pageInner")
-    lay = QVBoxLayout(inner)
-    lay.setContentsMargins(22, 6, 22, 18)
-    lay.setSpacing(12)
-    for w in widgets:
-        lay.addWidget(w)
-    lay.addStretch(1)
-    area.setWidget(inner)
-    return area
-
-
 def spin(value: int, minimum: int, maximum: int, on_change, suffix: str = " ms") -> QSpinBox:
     box = QSpinBox()
     box.setRange(minimum, maximum)
     box.setValue(value)
     box.setSuffix(suffix)
-    box.setFixedWidth(104)
+    box.setFixedWidth(100)
     box.valueChanged.connect(on_change)
     return box
 
 
-class Hero(QFrame):
-    """Grande carte à dégradé orange en tête de page (comme les cartes d'événement du modèle)."""
+class Tile(QFrame):
+    """Petite tuile de statistique (valeur + libellé)."""
 
-    def __init__(self, tag: str, title: str, sub: str, stat: str = "", stat_label: str = "",
-                 button: QPushButton | None = None):
+    def __init__(self, value: str, text: str, hot: bool = False):
         super().__init__()
-        self.setObjectName("hero")
-        lay = QHBoxLayout(self)
-        lay.setContentsMargins(22, 18, 22, 18)
-        left = QVBoxLayout()
-        left.setSpacing(5)
-        self.tag = label(tag, "tag")
-        self.title = label(title, "heroTitle")
-        self.sub = label(sub, "heroSub", wrap=True)
-        left.addWidget(self.tag, 0, Qt.AlignmentFlag.AlignLeft)
-        left.addWidget(self.title)
-        left.addWidget(self.sub)
-        if button is not None:
-            button.setObjectName("heroBtn")
-            button.setCursor(Qt.CursorShape.PointingHandCursor)
-            left.addSpacing(6)
-            left.addWidget(button, 0, Qt.AlignmentFlag.AlignLeft)
-        lay.addLayout(left, 1)
-        right = QVBoxLayout()
-        right.setSpacing(0)
-        self.stat = label(stat, "heroStat")
-        self.stat.setAlignment(Qt.AlignmentFlag.AlignRight)
-        self.stat_label = label(stat_label, "heroSub")
-        self.stat_label.setAlignment(Qt.AlignmentFlag.AlignRight)
-        right.addStretch(1)
-        right.addWidget(self.stat)
-        right.addWidget(self.stat_label)
-        lay.addLayout(right)
+        self.setObjectName("tileHot" if hot else "tile")
+        lay = QVBoxLayout(self)
+        lay.setContentsMargins(16, 12, 16, 12)
+        lay.setSpacing(0)
+        self.value = label(value, "tileValue")
+        self.text = label(text, "tileLabel")
+        lay.addWidget(self.value)
+        lay.addWidget(self.text)
 
-    def set_all(self, tag=None, title=None, sub=None, stat=None, stat_label=None):
-        for widget, value in ((self.tag, tag), (self.title, title), (self.sub, sub),
-                              (self.stat, stat), (self.stat_label, stat_label)):
-            if value is not None:
-                widget.setText(value)
+    def set_all(self, value: str | None = None, text: str | None = None):
+        if value is not None:
+            self.value.setText(value)
+        if text is not None:
+            self.text.setText(text)
 
 
 class HotkeyButton(QPushButton):
@@ -172,48 +141,94 @@ class HotkeyButton(QPushButton):
             self._refresh()
 
 
+def page_frame(title: str, subtitle: str, body: QWidget, right: QWidget | None = None) -> QWidget:
+    """En-tête de page (titre, sous-titre, action à droite) + contenu."""
+    page = QWidget()
+    page.setObjectName("page")
+    lay = QVBoxLayout(page)
+    lay.setContentsMargins(28, 22, 28, 20)
+    lay.setSpacing(14)
+    head = QHBoxLayout()
+    titles = QVBoxLayout()
+    titles.setSpacing(0)
+    titles.addWidget(label(title, "pageTitle"))
+    titles.addWidget(label(subtitle, "muted"))
+    head.addLayout(titles, 1)
+    if right is not None:
+        head.addWidget(right, 0, Qt.AlignmentFlag.AlignVCenter)
+    lay.addLayout(head)
+    lay.addWidget(body, 1)
+    return page
+
+
+def columns(left: list[QWidget], right: list[QWidget] | None = None, ratio: tuple[int, int] = (1, 1)) -> QScrollArea:
+    """Contenu défilant sur une ou deux colonnes."""
+    inner = QWidget()
+    inner.setObjectName("pageInner")
+    row = QHBoxLayout(inner)
+    row.setContentsMargins(0, 0, 8, 0)
+    row.setSpacing(16)
+    for widgets, stretch in ((left, ratio[0]), (right, ratio[1])):
+        if widgets is None:
+            continue
+        col = QVBoxLayout()
+        col.setSpacing(12)
+        for w in widgets:
+            col.addWidget(w)
+        col.addStretch(1)
+        row.addLayout(col, stretch)
+    area = QScrollArea()
+    area.setWidgetResizable(True)
+    area.setFrameShape(QFrame.Shape.NoFrame)
+    area.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
+    area.setWidget(inner)
+    return area
+
+
 # --- page Personnages -----------------------------------------------------------------
 class CharacterRow(QFrame):
     def __init__(self, ctl: Controller, pseudo: str):
         super().__init__()
         self.setObjectName("row")
-        self.setFixedHeight(68)
+        self.setFixedHeight(58)
         lay = QHBoxLayout(self)
-        lay.setContentsMargins(14, 0, 14, 0)
-        lay.setSpacing(8)
+        lay.setContentsMargins(12, 0, 12, 0)
+        lay.setSpacing(10)
         online = pseudo in ctl.windows
         is_main = ctl.cfg.get("main", default="") == pseudo
 
         lay.addWidget(Avatar(pseudo, online))
         texts = QVBoxLayout()
-        texts.setSpacing(1)
+        texts.setSpacing(0)
         name = label(pseudo, "cardTitle")
         name.setStyleSheet(f"color: {'white' if online else MUTED}; font-weight: 700;")
         status = "En ligne" if online else "Hors ligne"
         if is_main:
             status += "  ·  ★ Principal"
-        sub = label(status, "muted")
         texts.addStretch(1)
         texts.addWidget(name)
-        texts.addWidget(sub)
+        texts.addWidget(label(status, "muted"))
         texts.addStretch(1)
         lay.addLayout(texts, 1)
 
+        events = QHBoxLayout()
+        events.setSpacing(CHIP_GAP)
         enabled = ctl.events_for(pseudo)
         for key, icon in EVENT_ICONS.items():
             b = QPushButton(icon)
             b.setObjectName("chip")
             b.setCheckable(True)
-            b.setFixedSize(36, 36)
+            b.setFixedSize(CHIP, CHIP)
             b.setToolTip(f"Autofocus : {EVENTS[key]}")
             b.setChecked(key in enabled)
             b.toggled.connect(lambda state, k=key, p=pseudo: ctl.set_event(p, k, state))
-            lay.addWidget(b)
+            events.addWidget(b)
+        lay.addLayout(events)
 
         main = QPushButton("★")
         main.setObjectName("chip")
         main.setCheckable(True)
-        main.setFixedSize(36, 36)
+        main.setFixedSize(CHIP, CHIP)
         main.setToolTip("Personnage principal")
         main.setChecked(is_main)
         main.clicked.connect(lambda checked, p=pseudo: self._set_main(ctl, p, checked))
@@ -222,7 +237,7 @@ class CharacterRow(QFrame):
         excl = QPushButton("Exclure")
         excl.setObjectName("pill")
         excl.setCheckable(True)
-        excl.setFixedHeight(36)
+        excl.setFixedSize(EXCLUDE_WIDTH, CHIP)
         excl.setToolTip("Exclure des raccourcis et des outils")
         excl.setChecked(ctl.is_excluded(pseudo))
         excl.toggled.connect(lambda state, p=pseudo: ctl.set_excluded(p, state))
@@ -238,62 +253,96 @@ class CharactersPage(QWidget):
     def __init__(self, ctl: Controller):
         super().__init__()
         self.ctl = ctl
-        outer = QVBoxLayout(self)
-        outer.setContentsMargins(22, 6, 22, 0)
-        outer.setSpacing(12)
+        body = QWidget()
+        body.setObjectName("pageInner")
+        row = QHBoxLayout(body)
+        row.setContentsMargins(0, 0, 0, 0)
+        row.setSpacing(16)
 
-        self.hero = Hero("● Multicompte", "Tes personnages", "Glisse une ligne pour changer l'ordre de passage.",
-                         "0", "connectés")
-        outer.addWidget(self.hero)
-
-        # autofocus global par type d'événement
-        allbox, al = card()
-        row = QHBoxLayout()
-        row.addWidget(label("Autofocus pour tous", "cardTitle"))
-        row.addStretch(1)
-        for key, icon in EVENT_ICONS.items():
-            b = QPushButton(icon)
-            b.setObjectName("chip")
-            b.setFixedSize(36, 36)
-            b.setToolTip(f"Activer / désactiver « {EVENTS[key]} » pour tous")
-            b.clicked.connect(lambda _=False, k=key: self._toggle_column(k))
-            row.addWidget(b)
-        al.addLayout(row)
-        outer.addWidget(allbox)
-
+        # --- colonne gauche : liste des personnages ---
+        left = QVBoxLayout()
+        left.setSpacing(6)
+        head = QHBoxLayout()
+        head.setContentsMargins(12, 0, 12, 0)
+        head.setSpacing(10)
+        head.addSpacing(42)
+        head.addWidget(label("PERSONNAGE", "colhead"), 1)
+        for text, width in (("AUTOFOCUS", EVENTS_WIDTH), ("PRINC.", CHIP), ("", EXCLUDE_WIDTH)):
+            col = label(text, "colhead")
+            col.setFixedWidth(width)
+            col.setAlignment(Qt.AlignmentFlag.AlignCenter)
+            head.addWidget(col)
+        left.addLayout(head)
         self.list = QListWidget()
         self.list.setDragDropMode(QAbstractItemView.DragDropMode.InternalMove)
         self.list.setSelectionMode(QAbstractItemView.SelectionMode.NoSelection)
         self.list.setVerticalScrollMode(QAbstractItemView.ScrollMode.ScrollPerPixel)
         self.list.model().rowsMoved.connect(lambda *a: QTimer.singleShot(0, self._order_changed))
-        outer.addWidget(self.list, 1)
-
+        left.addWidget(self.list, 1)
         self.empty = label("Aucune fenêtre Dofus Rétro détectée.\nLance le jeu, elles apparaîtront ici.", "muted")
         self.empty.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        outer.addWidget(self.empty)
+        left.addWidget(self.empty)
+        row.addLayout(left, 1)
+
+        # --- colonne droite : stats, autofocus global, presets ---
+        right = QVBoxLayout()
+        right.setSpacing(12)
+        tiles = QHBoxLayout()
+        tiles.setSpacing(12)
+        self.tile_online = Tile("0", "connectés", hot=True)
+        self.tile_total = Tile("0", "personnages")
+        tiles.addWidget(self.tile_online)
+        tiles.addWidget(self.tile_total)
+        right.addLayout(tiles)
+
+        allbox, al = card()
+        al.addWidget(label("Autofocus pour tous", "cardTitle"))
+        al.addWidget(label("Active ou coupe un type de notification sur tous les personnages.", "muted", wrap=True))
+        chips = QHBoxLayout()
+        chips.setSpacing(CHIP_GAP)
+        for key, icon in EVENT_ICONS.items():
+            b = QPushButton(icon)
+            b.setObjectName("chip")
+            b.setFixedSize(CHIP + 6, CHIP + 6)
+            b.setToolTip(f"« {EVENTS[key]} » pour tous")
+            b.clicked.connect(lambda _=False, k=key: self._toggle_column(k))
+            chips.addWidget(b)
+        chips.addStretch(1)
+        al.addLayout(chips)
+        right.addWidget(allbox)
 
         presets, pl = card()
-        top = QHBoxLayout()
-        top.addWidget(label("Presets", "cardTitle"))
-        top.addStretch(1)
+        pl.addWidget(label("Presets", "cardTitle"))
+        pl.addWidget(label("Enregistre l'ordre, le principal, les exclusions et l'autofocus.", "muted", wrap=True))
         self.preset_combo = QComboBox()
-        self.preset_combo.setMinimumWidth(190)
         self.preset_combo.activated.connect(self._load_preset)
         delete = QPushButton("Supprimer")
         delete.clicked.connect(self._delete_preset)
-        top.addWidget(self.preset_combo)
-        top.addWidget(delete)
-        pl.addLayout(top)
-        bottom = QHBoxLayout()
+        pr = QHBoxLayout()
+        pr.addWidget(self.preset_combo, 1)
+        pr.addWidget(delete)
+        pl.addLayout(pr)
         self.preset_name = QLineEdit()
         self.preset_name.setPlaceholderText("Nom du nouveau preset")
         save = QPushButton("Enregistrer")
         save.setObjectName("primary")
         save.clicked.connect(self._save_preset)
-        bottom.addWidget(self.preset_name, 1)
-        bottom.addWidget(save)
-        pl.addLayout(bottom)
-        outer.addWidget(presets)
+        pn = QHBoxLayout()
+        pn.addWidget(self.preset_name, 1)
+        pn.addWidget(save)
+        pl.addLayout(pn)
+        right.addWidget(presets)
+        right.addStretch(1)
+        side = QWidget()
+        side.setObjectName("pageInner")
+        side.setFixedWidth(330)
+        side.setLayout(right)
+        right.setContentsMargins(0, 0, 0, 0)
+        row.addWidget(side)
+
+        layout = QVBoxLayout(self)
+        layout.setContentsMargins(0, 0, 0, 0)
+        layout.addWidget(page_frame("Personnages", "Glisse une ligne pour changer l'ordre de passage.", body))
 
         ctl.windows_changed.connect(self.rebuild)
         self.rebuild()
@@ -306,13 +355,14 @@ class CharactersPage(QWidget):
         for pseudo in order:
             item = QListWidgetItem()
             item.setData(Qt.ItemDataRole.UserRole, pseudo)
-            item.setSizeHint(QSize(100, 76))
+            item.setSizeHint(QSize(100, 66))
             self.list.addItem(item)
             self.list.setItemWidget(item, CharacterRow(self.ctl, pseudo))
         self.list.blockSignals(False)
         self.empty.setVisible(not order)
         online = len(self.ctl.windows)
-        self.hero.set_all(stat=str(online), stat_label="connecté" + ("s" if online > 1 else ""))
+        self.tile_online.set_all(str(online), "connecté" + ("s" if online > 1 else ""))
+        self.tile_total.set_all(str(len(order)), "personnage" + ("s" if len(order) > 1 else ""))
 
     def _order_changed(self):
         order = [self.list.item(i).data(Qt.ItemDataRole.UserRole) for i in range(self.list.count())]
@@ -356,60 +406,77 @@ class AutofocusPage(QWidget):
         super().__init__()
         self.ctl = ctl
         enabled = ctl.cfg.get("autofocus", "enabled", default=True)
-        self.toggle_btn = QPushButton("Désactiver" if enabled else "Activer")
-        self.toggle_btn.clicked.connect(self._toggle)
-        self.hero = Hero("● Actif" if enabled else "○ Inactif", "Autofocus",
-                         "Bascule sur le bon personnage dès que le jeu t'envoie une notification.",
-                         "0", "notifications lues", self.toggle_btn)
+        self.switch = make_switch(enabled, self._toggled)
 
-        stats_frame, stats = card()
+        self.tile_state = Tile("Actif" if enabled else "Inactif", "autofocus", hot=True)
+        self.tile_read = Tile("0", "notifications lues")
+        self.tile_focus = Tile("0", "changements de fenêtre")
+        tiles = QHBoxLayout()
+        tiles.setSpacing(12)
+        for t in (self.tile_state, self.tile_read, self.tile_focus):
+            tiles.addWidget(t)
+        tiles_w = QWidget()
+        tiles_w.setObjectName("pageInner")
+        tiles_w.setLayout(tiles)
+        tiles.setContentsMargins(0, 0, 0, 0)
+
+        status_frame, sl = card()
         self.status = label("Accès aux notifications : en attente…", "cardTitle")
-        self.counters = label("", "muted")
-        stats.addWidget(self.status)
-        stats.addWidget(self.counters)
-        stats.addWidget(label(
+        sl.addWidget(self.status)
+        sl.addWidget(label(
             "Mise en place : 1) en jeu, Options > Général > « Notification en arrière-plan » ; "
             "2) Windows, Paramètres > Système > Notifications : activées ; 3) coupe le son des notifications "
             "de Dofus si besoin.", "muted", wrap=True))
-
         debug = option_row("Mode debug", "Affiche dans le journal chaque notification Dofus lue.",
                            make_switch(ctl.cfg.get("autofocus", "debug", default=False),
                                        lambda v: ctl.cfg.set("autofocus", "debug", v)))
 
+        log_frame, ll = card()
         head = QHBoxLayout()
-        head.addWidget(label("Journal", "section"))
+        head.addWidget(label("Journal", "cardTitle"))
         head.addStretch(1)
         clear = QPushButton("Effacer")
         head.addWidget(clear)
-        head_w = QWidget()
-        head_w.setLayout(head)
-        head.setContentsMargins(0, 0, 0, 0)
+        ll.addLayout(head)
         self.log = QPlainTextEdit()
         self.log.setReadOnly(True)
         self.log.setMaximumBlockCount(500)
-        self.log.setMinimumHeight(170)
         clear.clicked.connect(self.log.clear)
+        ll.addWidget(self.log, 1)
+
+        body = QWidget()
+        body.setObjectName("pageInner")
+        row = QHBoxLayout(body)
+        row.setContentsMargins(0, 0, 0, 0)
+        row.setSpacing(16)
+        left = QVBoxLayout()
+        left.setSpacing(12)
+        left.addWidget(tiles_w)
+        left.addWidget(status_frame)
+        left.addWidget(debug)
+        left.addStretch(1)
+        row.addLayout(left, 1)
+        row.addWidget(log_frame, 1)
 
         layout = QVBoxLayout(self)
         layout.setContentsMargins(0, 0, 0, 0)
-        layout.addWidget(scroll_page(self.hero, stats_frame, debug, head_w, self.log))
+        layout.addWidget(page_frame("Autofocus", "Bascule sur le bon personnage dès que le jeu t'envoie une "
+                                                 "notification.", body, self.switch))
 
         ctl.log.connect(self.add_log)
         ctl.info_changed.connect(self.update_counters)
         QTimer(self, interval=1000, timeout=lambda: self.isVisible() and self.update_counters()).start()
 
-    def _toggle(self):
-        enabled = not self.ctl.cfg.get("autofocus", "enabled", default=True)
+    def _toggled(self, enabled: bool):
         self.ctl.set_autofocus_enabled(enabled)
-        self.toggle_btn.setText("Désactiver" if enabled else "Activer")
-        self.hero.set_all(tag="● Actif" if enabled else "○ Inactif")
+        self.tile_state.set_all("Actif" if enabled else "Inactif")
 
     def update_counters(self):
         ok = self.ctl.notifs.access_ok
         self.status.setText("Accès aux notifications : " + ("accordé ✓" if ok else "non accordé ✗"))
         self.status.setStyleSheet(f"color: {OK if ok else ERR};")
-        self.counters.setText(f"Changements de fenêtre : {self.ctl.focus_count}")
-        self.hero.set_all(stat=str(self.ctl.notifs.read_count))
+        self.tile_read.set_all(str(self.ctl.notifs.read_count))
+        self.tile_focus.set_all(str(self.ctl.focus_count))
 
     def add_log(self, level: str, message: str):
         colors = {"ok": OK, "error": ERR, "notif": ACCENT2}
@@ -433,47 +500,56 @@ class PrereqPage(QWidget):
         super().__init__()
         self.ctl = ctl
         self.checks: list[prereq.Check] = []
+        self.summary = Tile("…", "vérification", hot=True)
+        self.grid = QGridLayout()
+        self.grid.setSpacing(12)
+        self.grid.setColumnStretch(0, 1)
+        self.grid.setColumnStretch(1, 1)
+        self.grid.setAlignment(Qt.AlignmentFlag.AlignTop)
+        grid_w = QWidget()
+        grid_w.setObjectName("pageInner")
+        grid_w.setLayout(self.grid)
+        self.grid.setContentsMargins(0, 0, 8, 0)
+
+        area = QScrollArea()
+        area.setWidgetResizable(True)
+        area.setFrameShape(QFrame.Shape.NoFrame)
+        area.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
+        area.setWidget(grid_w)
+
         recheck = QPushButton("Revérifier")
+        recheck.setObjectName("primary")
         recheck.clicked.connect(self.refresh)
-        self.hero = Hero("● Diagnostic", "Vérification…", "Kalkid Rétro contrôle que ton PC est prêt.",
-                         "", "", recheck)
-        self._holder = QVBoxLayout()
-        self._holder.setSpacing(10)
-        holder_w = QWidget()
-        holder_w.setLayout(self._holder)
-        self._holder.setContentsMargins(0, 0, 0, 0)
+        right = QWidget()
+        right.setObjectName("pageInner")
+        rl = QHBoxLayout(right)
+        rl.setContentsMargins(0, 0, 0, 0)
+        rl.setSpacing(12)
+        rl.addWidget(self.summary)
+        rl.addWidget(recheck, 0, Qt.AlignmentFlag.AlignVCenter)
+
         layout = QVBoxLayout(self)
         layout.setContentsMargins(0, 0, 0, 0)
-        layout.addWidget(scroll_page(self.hero, holder_w))
+        layout.addWidget(page_frame("Prérequis", "Kalkid Rétro contrôle que ton PC est prêt.", area, right))
         self.refresh()
 
     def refresh(self) -> list[prereq.Check]:
         self.checks = prereq.check_all(self.ctl)
-        while self._holder.count():
-            item = self._holder.takeAt(0)
+        while self.grid.count():
+            item = self.grid.takeAt(0)
             if item.widget():
                 item.widget().deleteLater()
         errors = sum(c.state == prereq.ERROR for c in self.checks)
-        warns = sum(c.state == prereq.WARN for c in self.checks)
         oks = sum(c.state == prereq.OK for c in self.checks)
-        if errors:
-            self.hero.set_all(tag="● À corriger", title=f"{errors} point{'s' if errors > 1 else ''} bloquant"
-                              f"{'s' if errors > 1 else ''}", sub="Corrige les lignes rouges pour que tout marche.",
-                              stat=f"{oks}/{len(self.checks)}", stat_label="validés")
-        elif warns:
-            self.hero.set_all(tag="● Presque prêt", title="Quelques points à vérifier",
-                              sub="Rien de bloquant, mais lis les lignes orange.",
-                              stat=f"{oks}/{len(self.checks)}", stat_label="validés")
-        else:
-            self.hero.set_all(tag="● Prêt", title="Tout est en ordre ✓", sub="Ton PC est prêt pour Kalkid Rétro.",
-                              stat=f"{oks}/{len(self.checks)}", stat_label="validés")
-        for check in self.checks:
+        self.summary.set_all(f"{oks}/{len(self.checks)}", "tout est prêt ✓" if oks == len(self.checks)
+                             else (f"{errors} à corriger" if errors else "à vérifier"))
+        for i, check in enumerate(self.checks):
             frame, lay = card()
             row = QHBoxLayout()
             row.setSpacing(12)
             dot = label("●")
-            dot.setStyleSheet(f"color: {STATE_COLORS[check.state]}; font-size: 15pt;")
-            dot.setFixedWidth(22)
+            dot.setStyleSheet(f"color: {STATE_COLORS[check.state]}; font-size: 14pt;")
+            dot.setFixedWidth(20)
             texts = QVBoxLayout()
             texts.setSpacing(2)
             texts.addWidget(label(check.title, "cardTitle"))
@@ -486,7 +562,7 @@ class PrereqPage(QWidget):
                 fix.clicked.connect(lambda _=False, uri=check.fix_uri: os.startfile(uri))
                 row.addWidget(fix, 0, Qt.AlignmentFlag.AlignVCenter)
             lay.addLayout(row)
-            self._holder.addWidget(frame)
+            self.grid.addWidget(frame, i // 2, i % 2)
         return self.checks
 
 
@@ -494,12 +570,11 @@ class PrereqPage(QWidget):
 class ShortcutsPage(QWidget):
     def __init__(self, ctl: Controller):
         super().__init__()
-        hero = Hero("● Clavier", "Raccourcis", "Clique sur un raccourci puis appuie sur la touche voulue.",
-                    "3", "actions")
-        rows = [
-            hero,
+        left = [
             option_row("Fenêtre suivante", "Passe au personnage suivant dans l'ordre.", HotkeyButton(ctl, "next")),
             option_row("Fenêtre précédente", "Revient au personnage précédent.", HotkeyButton(ctl, "prev")),
+        ]
+        right = [
             option_row("Personnage principal", "Passe sur le personnage marqué ★.", HotkeyButton(ctl, "main")),
             option_row("Seulement en jeu", "Les raccourcis ne fonctionnent que si une fenêtre Dofus Rétro est "
                                            "au premier plan (recommandé).",
@@ -508,7 +583,8 @@ class ShortcutsPage(QWidget):
         ]
         layout = QVBoxLayout(self)
         layout.setContentsMargins(0, 0, 0, 0)
-        layout.addWidget(scroll_page(*rows))
+        layout.addWidget(page_frame("Raccourcis", "Clique sur un raccourci puis appuie sur la touche voulue.",
+                                    columns(left, right)))
 
 
 # --- page Outils -----------------------------------------------------------------------
@@ -522,22 +598,19 @@ class ToolsPage(QWidget):
         def set_tool(key):
             return lambda value: (cfg.set("tools", key, value), ctl.rebind_hotkeys())
 
-        self.hero = Hero("● Outils", "Outils multicompte", "Dernier clic : aucun clic pour l'instant",
-                         "", "")
-        widgets: list[QWidget] = [self.hero]
-        widgets.append(option_row("Anti-clignotement", "Éteint le clignotement des fenêtres du jeu dans la "
-                                  "barre des tâches.", make_switch(cfg.get("tools", "no_flash", default=True),
-                                                                   set_tool("no_flash"))))
+        self.info = label("Dernier clic : aucun clic pour l'instant", "muted", wrap=True)
 
         warn, wl = card("warn")
         wl.addWidget(label("⚠  Outils de macro", "cardTitle"))
         wl.addWidget(label(MACRO_WARNING, "muted", wrap=True))
-        widgets.append(warn)
 
-        # Clics synchronisés
+        # --- colonne gauche : clics ---
+        left: list[QWidget] = [option_row("Anti-clignotement", "Éteint le clignotement des fenêtres du jeu "
+                               "dans la barre des tâches.", make_switch(cfg.get("tools", "no_flash", default=True),
+                                                                        set_tool("no_flash")))]
         self.clicks = make_switch(cfg.get("tools", "clicks_enabled", default=False), self._clicks_toggled)
-        widgets.append(option_row("Clics synchronisés", "Clic molette : clic gauche au même endroit sur tous "
-                                  "les comptes, avec un délai aléatoire.", self.clicks))
+        left.append(option_row("Clics synchronisés", "Clic molette : clic gauche au même endroit sur tous les "
+                               "comptes, avec un délai aléatoire.", self.clicks))
         tune, tl = card()
         tl.addLayout(field_row("Délai aléatoire entre fenêtres",
                                spin(cfg.get("tools", "delay_min", default=90), 0, 5000, set_tool("delay_min")),
@@ -546,15 +619,16 @@ class ToolsPage(QWidget):
         tl.addLayout(field_row("Clic molette actif",
                                make_switch(cfg.get("tools", "wheel", default=True), set_tool("wheel"))))
         tl.addLayout(field_row("Raccourci « clic sans délai »", HotkeyButton(ctl, "click_all")))
-        widgets.append(tune)
+        tl.addWidget(self.info)
+        left.append(tune)
 
-        # Invitation de groupe
+        # --- colonne droite : invitation de groupe ---
         self.invite = make_switch(cfg.get("tools", "invite_enabled", default=False), self._invite_toggled)
-        widgets.append(option_row("Invitation de groupe", "Le chef invite tous les personnages connectés, "
-                                  "chacun valide puis invite le suivant.", self.invite))
+        right: list[QWidget] = [option_row("Invitation de groupe", "Le chef invite tous les personnages connectés, "
+                                "chacun valide puis invite le suivant.", self.invite)]
         grp, gl = card()
         self.leader = QComboBox()
-        self.leader.setMinimumWidth(180)
+        self.leader.setMinimumWidth(170)
         self.leader.activated.connect(lambda _: cfg.set("tools", "leader", self.leader.currentText()))
         gl.addLayout(field_row("Chef de groupe", self.leader))
         self.chat_pos = label("")
@@ -569,26 +643,35 @@ class ToolsPage(QWidget):
         self.invite_btn = QPushButton("Inviter tout le monde")
         self.invite_btn.setObjectName("primary")
         self.invite_btn.clicked.connect(ctl.invite_group)
-        gl.addLayout(field_row("Raccourci « inviter tout le monde »", HotkeyButton(ctl, "invite"), self.invite_btn))
-        widgets.append(grp)
+        gl.addLayout(field_row("Raccourci « inviter tout le monde »", HotkeyButton(ctl, "invite")))
+        gl.addWidget(self.invite_btn)
+        right.append(grp)
 
+        body = QWidget()
+        body.setObjectName("pageInner")
+        bl = QVBoxLayout(body)
+        bl.setContentsMargins(0, 0, 0, 0)
+        bl.setSpacing(12)
+        bl.addWidget(warn)
+        bl.addWidget(columns(left, right), 1)
         layout = QVBoxLayout(self)
         layout.setContentsMargins(0, 0, 0, 0)
-        layout.addWidget(scroll_page(*widgets))
+        layout.addWidget(page_frame("Outils", "Fonctions optionnelles pour le multicompte (désactivées par défaut).",
+                                    body))
 
         ctl.windows_changed.connect(self.refresh_leader)
         ctl.chat_pos_changed.connect(self.refresh_chat_pos)
-        ctl.info_changed.connect(self.refresh_hero)
+        ctl.info_changed.connect(self.refresh_info)
         self.refresh_leader()
         self.refresh_chat_pos()
         self._sync_enabled()
 
-    def refresh_hero(self):
+    def refresh_info(self):
         gaps = " · ".join(str(g) for g in self.ctl.last_gaps)
-        sub = f"Dernier clic : {self.ctl.last_info}"
+        text = f"Dernier clic : {self.ctl.last_info}"
         if gaps:
-            sub += f"   ·   écarts (ms) : {gaps}"
-        self.hero.set_all(sub=sub)
+            text += f"\nÉcarts réels (ms) : {gaps}"
+        self.info.setText(text)
 
     def _clicks_toggled(self, value: bool):
         if value and not self._confirm():
@@ -655,9 +738,8 @@ class SettingsPage(QWidget):
     def __init__(self, ctl: Controller):
         super().__init__()
         cfg = ctl.cfg
-        hero = Hero("● Application", "Réglages", f"{APP_NAME}  v{__version__}", "", "")
         info, il = card()
-        il.addWidget(label("À propos", "cardTitle"))
+        il.addWidget(label(f"{APP_NAME}  v{__version__}", "cardTitle"))
         il.addWidget(label(
             "Gestionnaire de fenêtres multicompte pour Dofus Rétro : autofocus par notifications, ordre des "
             "personnages, raccourcis, et outils optionnels (clics synchronisés, invitation de groupe).",
@@ -667,8 +749,7 @@ class SettingsPage(QWidget):
             "Le principe de l'autofocus par notifications Windows a été popularisé par Dracoon (Slyss49). "
             "Kalkid Rétro est une implémentation indépendante, sans code repris de Dracoon. Cet outil n'est "
             "pas affilié à Ankama.", "muted", wrap=True))
-        rows = [
-            hero,
+        left = [
             option_row("Réduire dans la zone de notification", "La croix de la fenêtre range l'application près "
                        "de l'horloge au lieu de la fermer.",
                        make_switch(cfg.get("settings", "close_to_tray", default=True),
@@ -678,11 +759,10 @@ class SettingsPage(QWidget):
                                                     lambda v: cfg.set("settings", "start_hidden", v))),
             option_row("Lancer avec Windows", "Démarre Kalkid Rétro à l'ouverture de session.",
                        make_switch(_autostart_enabled(), _set_autostart)),
-            info,
         ]
         layout = QVBoxLayout(self)
         layout.setContentsMargins(0, 0, 0, 0)
-        layout.addWidget(scroll_page(*rows))
+        layout.addWidget(page_frame("Réglages", "Comportement de l'application.", columns(left, [info])))
 
 
 # --- fenêtre principale -----------------------------------------------------------------
@@ -694,35 +774,68 @@ class MainWindow(QMainWindow):
         self._first_check = True
         self.setWindowTitle(APP_NAME)
         self.setWindowIcon(make_icon())
-        self.resize(660, 900)
-        self.setMinimumSize(560, 640)
+        self.resize(1120, 740)
+        self.setMinimumSize(980, 640)
 
         root = QWidget()
         root.setObjectName("root")
         self.setCentralWidget(root)
-        lay = QVBoxLayout(root)
-        lay.setContentsMargins(0, 0, 0, 0)
-        lay.setSpacing(0)
+        main = QHBoxLayout(root)
+        main.setContentsMargins(0, 0, 0, 0)
+        main.setSpacing(0)
 
-        # en-tête : logo + titre + état
-        header = QHBoxLayout()
-        header.setContentsMargins(24, 18, 24, 12)
-        header.setSpacing(12)
+        # --- menu latéral ---
+        sidebar = QFrame()
+        sidebar.setObjectName("sidebar")
+        sidebar.setFixedWidth(230)
+        sl = QVBoxLayout(sidebar)
+        sl.setContentsMargins(16, 22, 16, 18)
+        sl.setSpacing(4)
+        brand = QHBoxLayout()
+        brand.setSpacing(12)
         logo = QLabel()
-        logo.setPixmap(round_logo(52))
-        logo.setFixedSize(52, 52)
-        header.addWidget(logo)
-        titles = QVBoxLayout()
-        titles.setSpacing(0)
-        titles.addWidget(label("Kalkid Rétro", "appTitle"))
-        self.subtitle = label("", "muted")
-        titles.addWidget(self.subtitle)
-        header.addLayout(titles, 1)
-        self.chip = label("", "tag")
-        header.addWidget(self.chip, 0, Qt.AlignmentFlag.AlignVCenter)
-        lay.addLayout(header)
+        logo.setPixmap(round_logo(44))
+        logo.setFixedSize(44, 44)
+        brand.addWidget(logo)
+        names = QVBoxLayout()
+        names.setSpacing(0)
+        names.addWidget(label("Kalkid Rétro", "appTitle"))
+        names.addWidget(label(f"v{__version__}", "muted"))
+        brand.addLayout(names, 1)
+        sl.addLayout(brand)
+        sl.addSpacing(22)
 
-        # bandeau d'alerte (prérequis bloquants)
+        self.stack = QStackedWidget()
+        self.prereq_page = PrereqPage(ctl)
+        pages = [
+            ("people", "Personnages", CharactersPage(ctl)),
+            ("bell", "Autofocus", AutofocusPage(ctl)),
+            ("shield", "Prérequis", self.prereq_page),
+            ("keyboard", "Raccourcis", ShortcutsPage(ctl)),
+            ("sliders", "Outils", ToolsPage(ctl, self._confirm_macros)),
+            ("gear", "Réglages", SettingsPage(ctl)),
+        ]
+        self.nav_items: list[SideNavItem] = []
+        for index, (icon, text, page) in enumerate(pages):
+            self.stack.addWidget(page)
+            item = SideNavItem(icon, text)
+            item.clicked.connect(lambda _=False, i=index: self.stack.setCurrentIndex(i))
+            sl.addWidget(item)
+            self.nav_items.append(item)
+        self.prereq_index = 2
+        self.nav_items[0].setChecked(True)
+        sl.addStretch(1)
+
+        self.chip = label("", "tag")
+        self.subtitle = label("", "muted")
+        sl.addWidget(self.chip, 0, Qt.AlignmentFlag.AlignLeft)
+        sl.addWidget(self.subtitle)
+        main.addWidget(sidebar)
+
+        # --- contenu ---
+        content = QVBoxLayout()
+        content.setContentsMargins(0, 0, 0, 0)
+        content.setSpacing(0)
         self.banner_frame = QFrame()
         self.banner_frame.setObjectName("banner")
         bl = QHBoxLayout(self.banner_frame)
@@ -732,42 +845,13 @@ class MainWindow(QMainWindow):
         self.banner.setCursor(Qt.CursorShape.PointingHandCursor)
         bl.addWidget(self.banner)
         wrap = QHBoxLayout()
-        wrap.setContentsMargins(22, 0, 22, 8)
+        wrap.setContentsMargins(28, 16, 28, 0)
         wrap.addWidget(self.banner_frame)
-        lay.addLayout(wrap)
+        content.addLayout(wrap)
         self.banner_frame.hide()
-
-        # pages
-        self.stack = QStackedWidget()
-        self.prereq_page = PrereqPage(ctl)
-        pages = [
-            ("people", "Persos", CharactersPage(ctl)),
-            ("bell", "Autofocus", AutofocusPage(ctl)),
-            ("shield", "Prérequis", self.prereq_page),
-            ("keyboard", "Touches", ShortcutsPage(ctl)),
-            ("sliders", "Outils", ToolsPage(ctl, self._confirm_macros)),
-            ("gear", "Réglages", SettingsPage(ctl)),
-        ]
-        self.nav_buttons: list[NavButton] = []
-        navbar = QFrame()
-        navbar.setObjectName("navbar")
-        nl = QHBoxLayout(navbar)
-        nl.setContentsMargins(14, 8, 14, 8)
-        nl.setSpacing(0)
-        for index, (icon, text, page) in enumerate(pages):
-            self.stack.addWidget(page)
-            btn = NavButton(icon, text)
-            btn.clicked.connect(lambda _=False, i=index: self.stack.setCurrentIndex(i))
-            nl.addWidget(btn, 1)
-            self.nav_buttons.append(btn)
-        self.prereq_index = 2
-        self.nav_buttons[0].setChecked(True)
         self.banner.clicked.connect(lambda: self._goto(self.prereq_index))
-        lay.addWidget(self.stack, 1)
-        navwrap = QHBoxLayout()
-        navwrap.setContentsMargins(22, 6, 22, 18)
-        navwrap.addWidget(navbar)
-        lay.addLayout(navwrap)
+        content.addWidget(self.stack, 1)
+        main.addLayout(content, 1)
 
         ctl.windows_changed.connect(self.update_status)
         ctl.info_changed.connect(self.update_status)
@@ -795,7 +879,7 @@ class MainWindow(QMainWindow):
 
     def _goto(self, index: int):
         self.stack.setCurrentIndex(index)
-        self.nav_buttons[index].setChecked(True)
+        self.nav_items[index].setChecked(True)
 
     def update_status(self):
         n = len(self.ctl.windows)
@@ -806,9 +890,9 @@ class MainWindow(QMainWindow):
     def update_prereq(self):
         checks = self.prereq_page.refresh()
         problems = prereq.blocking_problems(checks)
-        self.nav_buttons[self.prereq_index].set_badge(bool(problems))
+        self.nav_items[self.prereq_index].set_badge(bool(problems))
         if problems:
-            self.banner.setText(f"⚠  Configuration incomplète : {problems[0].title}. Touche ici pour voir quoi "
+            self.banner.setText(f"⚠  Configuration incomplète : {problems[0].title}. Clique ici pour voir quoi "
                                 f"corriger ({len(problems)} problème{'s' if len(problems) > 1 else ''}).")
             self.banner_frame.show()
             if self._first_check:

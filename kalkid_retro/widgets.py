@@ -1,13 +1,18 @@
-"""Composants graphiques sur mesure : interrupteur animé, bouton de navigation circulaire, avatar."""
+"""Composants graphiques sur mesure : interrupteur animé, entrée de menu latéral, avatar."""
 
 from __future__ import annotations
 
-from PySide6.QtCore import Property, QPropertyAnimation, QEasingCurve, QRectF, QSize, Qt
+from PySide6.QtCore import Property, QEasingCurve, QPropertyAnimation, QRectF, QSize, Qt
 from PySide6.QtGui import QColor, QFont, QLinearGradient, QPainter, QPen
 from PySide6.QtWidgets import QAbstractButton, QWidget
 
 from . import theme
 from .icons import draw_icon
+
+
+def _mix(a: QColor, b: QColor, t: float) -> QColor:
+    return QColor(int(a.red() + (b.red() - a.red()) * t), int(a.green() + (b.green() - a.green()) * t),
+                  int(a.blue() + (b.blue() - a.blue()) * t))
 
 
 class Switch(QAbstractButton):
@@ -18,10 +23,10 @@ class Switch(QAbstractButton):
         self.setCheckable(True)
         self.setChecked(checked)
         self.setCursor(Qt.CursorShape.PointingHandCursor)
-        self.setFixedSize(50, 28)
+        self.setFixedSize(44, 24)
         self._pos = 1.0 if checked else 0.0
         self._anim = QPropertyAnimation(self, b"position", self)
-        self._anim.setDuration(140)
+        self._anim.setDuration(130)
         self._anim.setEasingCurve(QEasingCurve.Type.InOutQuad)
         self.toggled.connect(self._animate)
 
@@ -49,30 +54,24 @@ class Switch(QAbstractButton):
     def paintEvent(self, _event):
         p = QPainter(self)
         p.setRenderHint(QPainter.RenderHint.Antialiasing)
-        track = QRectF(0, 0, self.width(), self.height())
-        grad = QLinearGradient(0, 0, self.width(), 0)
         if self.isEnabled():
             off, on1, on2 = QColor("#3A3A41"), QColor(theme.ACCENT2), QColor(theme.ACCENT)
         else:
             off, on1, on2 = QColor("#2A2A2E"), QColor("#6A4A40"), QColor("#6A4A40")
-        mix = self._pos
-        grad.setColorAt(0, QColor(int(off.red() + (on1.red() - off.red()) * mix),
-                                  int(off.green() + (on1.green() - off.green()) * mix),
-                                  int(off.blue() + (on1.blue() - off.blue()) * mix)))
-        grad.setColorAt(1, QColor(int(off.red() + (on2.red() - off.red()) * mix),
-                                  int(off.green() + (on2.green() - off.green()) * mix),
-                                  int(off.blue() + (on2.blue() - off.blue()) * mix)))
+        grad = QLinearGradient(0, 0, self.width(), 0)
+        grad.setColorAt(0, _mix(off, on1, self._pos))
+        grad.setColorAt(1, _mix(off, on2, self._pos))
         p.setPen(Qt.PenStyle.NoPen)
         p.setBrush(grad)
-        p.drawRoundedRect(track, self.height() / 2, self.height() / 2)
+        p.drawRoundedRect(QRectF(0, 0, self.width(), self.height()), self.height() / 2, self.height() / 2)
         d = self.height() - 8
         x = 4 + (self.width() - d - 8) * self._pos
         p.setBrush(QColor("white"))
         p.drawEllipse(QRectF(x, 4, d, d))
 
 
-class NavButton(QAbstractButton):
-    """Bouton de navigation circulaire (icône vectorielle + libellé)."""
+class SideNavItem(QAbstractButton):
+    """Entrée du menu latéral : icône vectorielle + libellé, surlignée quand elle est active."""
 
     def __init__(self, icon: str, text: str, parent=None):
         super().__init__(parent)
@@ -81,11 +80,11 @@ class NavButton(QAbstractButton):
         self.setCheckable(True)
         self.setAutoExclusive(True)
         self.setCursor(Qt.CursorShape.PointingHandCursor)
-        self.setToolTip(text)
+        self.setFixedHeight(44)
         self._badge = False
 
     def sizeHint(self) -> QSize:
-        return QSize(78, 78)
+        return QSize(200, 44)
 
     def set_badge(self, on: bool):
         self._badge = on
@@ -94,31 +93,34 @@ class NavButton(QAbstractButton):
     def paintEvent(self, _event):
         p = QPainter(self)
         p.setRenderHint(QPainter.RenderHint.Antialiasing)
-        d = 46
-        cx = self.width() / 2
-        circle = QRectF(cx - d / 2, 4, d, d)
-        if self.isChecked():
-            grad = QLinearGradient(circle.topLeft(), circle.bottomRight())
-            grad.setColorAt(0, QColor(theme.ACCENT2))
-            grad.setColorAt(1, QColor(theme.ACCENT))
-            p.setBrush(grad)
-            icon_color = QColor("white")
-        else:
-            p.setBrush(QColor("#2A2A2F" if self.underMouse() else "#222226"))
-            icon_color = QColor("#C9C9D1")
-        p.setPen(Qt.PenStyle.NoPen)
-        p.drawEllipse(circle)
-        draw_icon(p, self._icon, QRectF(circle.center().x() - 11, circle.center().y() - 11, 22, 22), icon_color)
-        if self._badge:
-            p.setBrush(QColor(theme.ERR))
-            p.setPen(QPen(QColor("#131316"), 2))
-            p.drawEllipse(QRectF(circle.right() - 10, circle.top() - 1, 12, 12))
+        r = QRectF(0, 0, self.width(), self.height())
+        checked = self.isChecked()
+        if checked:
+            p.setPen(Qt.PenStyle.NoPen)
+            p.setBrush(QColor(255, 90, 54, 40))
+            p.drawRoundedRect(r, 12, 12)
+            bar = QLinearGradient(0, 0, 0, self.height())
+            bar.setColorAt(0, QColor(theme.ACCENT2))
+            bar.setColorAt(1, QColor(theme.ACCENT))
+            p.setBrush(bar)
+            p.drawRoundedRect(QRectF(0, 10, 4, self.height() - 20), 2, 2)
+        elif self.underMouse():
+            p.setPen(Qt.PenStyle.NoPen)
+            p.setBrush(QColor(255, 255, 255, 14))
+            p.drawRoundedRect(r, 12, 12)
+        color = QColor(theme.ACCENT2) if checked else QColor("#C9C9D1")
+        draw_icon(p, self._icon, QRectF(16, (self.height() - 20) / 2, 20, 20), color)
         font = QFont(self.font())
-        font.setPointSizeF(8)
-        font.setWeight(QFont.Weight.DemiBold)
+        font.setPointSizeF(10.5)
+        font.setWeight(QFont.Weight.Bold if checked else QFont.Weight.DemiBold)
         p.setFont(font)
-        p.setPen(QColor(theme.ACCENT2 if self.isChecked() else theme.MUTED))
-        p.drawText(QRectF(0, d + 6, self.width(), 18), Qt.AlignmentFlag.AlignCenter, self.text())
+        p.setPen(QColor("white") if checked else QColor("#B5B5BE"))
+        p.drawText(QRectF(48, 0, self.width() - 60, self.height()),
+                   Qt.AlignmentFlag.AlignVCenter | Qt.AlignmentFlag.AlignLeft, self.text())
+        if self._badge:
+            p.setPen(QPen(QColor("#101013"), 2))
+            p.setBrush(QColor(theme.ERR))
+            p.drawEllipse(QRectF(self.width() - 26, self.height() / 2 - 6, 12, 12))
 
     def enterEvent(self, event):
         self.update()
@@ -136,7 +138,7 @@ _AVATAR_COLORS = [("#FF9A62", "#FF5A36"), ("#7C8CFF", "#4B5BFF"), ("#3DDC84", "#
 class Avatar(QWidget):
     """Pastille ronde avec l'initiale du personnage et un voyant de connexion."""
 
-    def __init__(self, name: str, online: bool, size: int = 46, parent=None):
+    def __init__(self, name: str, online: bool, size: int = 42, parent=None):
         super().__init__(parent)
         self.name, self.online = name, online
         self.setFixedSize(size, size)
@@ -154,12 +156,12 @@ class Avatar(QWidget):
         p.setBrush(grad)
         p.drawEllipse(circle)
         font = QFont(self.font())
-        font.setPointSizeF(13)
+        font.setPointSizeF(12)
         font.setWeight(QFont.Weight.ExtraBold)
         p.setFont(font)
         p.setPen(QColor("white" if self.online else "#9A9AA3"))
         p.drawText(circle, Qt.AlignmentFlag.AlignCenter, (self.name[:1] or "?").upper())
-        dot = QRectF(self.width() - 13, self.height() - 13, 11, 11)
+        dot = QRectF(self.width() - 12, self.height() - 12, 10, 10)
         p.setPen(QPen(QColor(theme.CARD), 2))
         p.setBrush(QColor(theme.OK if self.online else "#5A5A62"))
         p.drawEllipse(dot)

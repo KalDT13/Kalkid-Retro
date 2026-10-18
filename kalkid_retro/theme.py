@@ -48,7 +48,16 @@ QFrame#hero QLabel#heroSub {{ color: rgba(255,255,255,85%); font-size: 9pt; }}
 QFrame#hero QLabel#heroTitle {{ font-size: 15pt; font-weight: 800; }}
 QFrame#hero QLabel#heroStat {{ font-size: 20pt; font-weight: 800; }}
 QLabel#tag {{ background: rgba(0,0,0,30%); color: white; border-radius: 9px; padding: 2px 9px; font-size: 8pt; }}
-QFrame#navbar {{ background: #131316; border: 1px solid {CARD_BORDER}; border-radius: 34px; }}
+QFrame#sidebar {{ background: #101013; border: none; border-right: 1px solid {CARD_BORDER}; }}
+QLabel#pageTitle {{ font-size: 19pt; font-weight: 800; }}
+QLabel#colhead {{ color: {MUTED}; font-size: 8pt; font-weight: 700; }}
+QFrame#tile {{ background: {CARD}; border: 1px solid {CARD_BORDER}; border-radius: 16px; }}
+QFrame#tileHot {{ background: qlineargradient(x1:0, y1:0, x2:1, y2:1, stop:0 {ACCENT2}, stop:1 {ACCENT});
+                 border: none; border-radius: 16px; }}
+QFrame#tileHot QLabel {{ color: white; }}
+QLabel#tileValue {{ font-size: 19pt; font-weight: 800; }}
+QLabel#tileLabel {{ color: {MUTED}; font-size: 8.5pt; }}
+QFrame#tileHot QLabel#tileLabel {{ color: rgba(255,255,255,85%); }}
 QFrame#banner {{ background: #3A1B16; border-radius: 16px; }}
 QFrame#banner QLabel {{ color: #FFC9BE; }}
 
@@ -64,9 +73,9 @@ QPushButton#primary:disabled {{ background: #26262A; color: #5A5A62; }}
 QPushButton#heroBtn {{ background: #1A1A1D; color: white; padding: 11px 22px; font-weight: 700; border-radius: 19px; }}
 QPushButton#heroBtn:hover {{ background: #26262A; }}
 QPushButton#chip {{ padding: 0; font-size: 12pt; border-radius: 18px; background: {FIELD}; }}
-QPushButton#chip:checked {{ background: rgba(255,90,54,22%); border: 1px solid {ACCENT}; }}
-QPushButton#chip:hover {{ background: {FIELD_HOVER}; }}
-QPushButton#chip:checked:hover {{ background: rgba(255,90,54,34%); }}
+QPushButton#chip:checked {{ background: rgba(255,90,54,22%); border: 1px solid {ACCENT}; border-radius: 17px; }}
+QPushButton#chip:hover {{ background: {FIELD_HOVER}; border-radius: 17px; }}
+QPushButton#chip:checked:hover {{ background: rgba(255,90,54,34%); border: 1px solid {ACCENT}; border-radius: 17px; }}
 QPushButton#pill {{ padding: 6px 14px; color: {MUTED}; }}
 QPushButton#pill:checked {{ background: {ACCENT}; color: white; }}
 QPushButton#banner {{ background: transparent; color: #FFC9BE; text-align: left; padding: 10px 16px;
