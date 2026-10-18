@@ -8,11 +8,11 @@ import sys
 import winreg
 from datetime import datetime
 
-from PySide6.QtCore import QSize, Qt, QTimer
-from PySide6.QtGui import QAction, QColor, QIcon, QTextCharFormat, QTextCursor
-from PySide6.QtWidgets import (QAbstractItemView, QApplication, QComboBox, QDialog, QFileDialog, QFrame, QGridLayout,
-                               QHBoxLayout, QLabel, QLineEdit, QListWidget, QListWidgetItem, QMainWindow, QMenu,
-                               QMessageBox, QPlainTextEdit, QProgressBar, QPushButton, QScrollArea, QSpinBox,
+from PySide6.QtCore import QMimeData, QSize, Qt, QTimer, Signal
+from PySide6.QtGui import QAction, QColor, QDrag, QIcon, QPainter, QPixmap, QTextCharFormat, QTextCursor
+from PySide6.QtWidgets import (QApplication, QComboBox, QDialog, QFileDialog, QFrame, QGraphicsOpacityEffect,
+                               QGridLayout, QHBoxLayout, QLabel, QLineEdit, QMainWindow, QMenu, QMessageBox,
+                               QPlainTextEdit, QProgressBar, QPushButton, QScrollArea, QSizePolicy, QSpinBox,
                                QStackedWidget, QSystemTrayIcon, QVBoxLayout, QWidget)
 
 from . import APP_NAME, __version__, portraits, prereq, updater
@@ -31,10 +31,10 @@ MACRO_WARNING = (
 )
 
 # largeurs fixes partagées par l'en-tête et les lignes de personnages (colonnes alignées)
-CHIP = 34
-CHIP_GAP = 6
+CHIP = 32
+CHIP_GAP = 4
 EVENTS_WIDTH = len(EVENT_ICONS) * CHIP + (len(EVENT_ICONS) - 1) * CHIP_GAP
-EXCLUDE_WIDTH = 78
+EXCLUDE_WIDTH = CHIP
 
 
 # --- briques communes -----------------------------------------------------------------
@@ -269,31 +269,52 @@ def open_portrait_dialog(ctl: Controller, pseudo: str, parent: QWidget) -> None:
 
 
 # --- page Personnages -----------------------------------------------------------------
+ROW_MIME = "application/x-kalkid-row"   # glisser-déposer interne d'une ligne de personnage
+
+
 class CharacterRow(QFrame):
-    def __init__(self, ctl: Controller, pseudo: str):
+    """Ligne d'un personnage. Se saisit n'importe où (hors boutons) pour la glisser à une autre place."""
+
+    def __init__(self, ctl: Controller, pseudo: str, rank: int):
         super().__init__()
+        self.pseudo = pseudo
+        self._ctl = ctl
+        self._press_pos = None
         self.setObjectName("row")
         self.setFixedHeight(58)
+        self.setCursor(Qt.CursorShape.OpenHandCursor)
+        self.setToolTip("Maintiens le clic et glisse pour changer l'ordre d'initiative")
         lay = QHBoxLayout(self)
         lay.setContentsMargins(12, 0, 12, 0)
-        lay.setSpacing(10)
+        lay.setSpacing(8)
         online = pseudo in ctl.windows
         is_main = ctl.cfg.get("main", default="") == pseudo
 
-        # le dialogue s'ouvre après le retour de l'événement souris (la ligne peut être reconstruite)
-        lay.addWidget(Avatar(pseudo, online, 42, portraits.pixmap(ctl.portrait_key(pseudo), 84),
-                             on_click=lambda: QTimer.singleShot(0, lambda: open_portrait_dialog(
-                                 ctl, pseudo, self.window()))))
+        rank_label = label(str(rank), "cardTitle")
+        rank_label.setFixedWidth(22)
+        rank_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        rank_label.setStyleSheet(f"color: {ACCENT2}; font-weight: 800;")
+        rank_label.setToolTip("Rang dans l'ordre d'initiative")
+        lay.addWidget(rank_label)
+        self.avatar = Avatar(pseudo, online, 42, portraits.pixmap(ctl.portrait_key(pseudo), 84))
+        self.avatar.setCursor(Qt.CursorShape.PointingHandCursor)
+        self.avatar.setToolTip("Clique pour changer l'icône")
+        lay.addWidget(self.avatar)
         texts = QVBoxLayout()
         texts.setSpacing(0)
         name = label(pseudo, "cardTitle")
         name.setStyleSheet(f"color: {'white' if online else MUTED}; font-weight: 700;")
         status = "En ligne" if online else "Hors ligne"
         if is_main:
-            status += "  ·  ★ Principal"
+            status += " · ★ Principal"
+        status_label = label(status, "muted")
+        # une ligne plus longue (« ★ Principal ») ne doit pas décaler les boutons des autres colonnes
+        for w in (name, status_label):
+            w.setSizePolicy(QSizePolicy.Policy.Ignored, QSizePolicy.Policy.Preferred)
+            w.setMinimumWidth(0)
         texts.addStretch(1)
         texts.addWidget(name)
-        texts.addWidget(label(status, "muted"))
+        texts.addWidget(status_label)
         texts.addStretch(1)
         lay.addLayout(texts, 1)
 
@@ -320,11 +341,11 @@ class CharacterRow(QFrame):
         main.clicked.connect(lambda checked, p=pseudo: self._set_main(ctl, p, checked))
         lay.addWidget(main)
 
-        excl = QPushButton("Exclure")
-        excl.setObjectName("pill")
+        excl = QPushButton("⊘")
+        excl.setObjectName("chip")
         excl.setCheckable(True)
         excl.setFixedSize(EXCLUDE_WIDTH, CHIP)
-        excl.setToolTip("Exclure des raccourcis et des outils")
+        excl.setToolTip("Exclure ce personnage des raccourcis et des outils")
         excl.setChecked(ctl.is_excluded(pseudo))
         excl.toggled.connect(lambda state, p=pseudo: ctl.set_excluded(p, state))
         lay.addWidget(excl)
@@ -333,6 +354,151 @@ class CharacterRow(QFrame):
     def _set_main(ctl: Controller, pseudo: str, checked: bool):
         ctl.cfg.set("main", pseudo if checked else "")
         ctl.windows_changed.emit()
+
+    # --- glisser-déposer : les boutons gardent leurs clics, le reste de la ligne sert de poignée ---
+    def mousePressEvent(self, event):
+        if event.button() == Qt.MouseButton.LeftButton:
+            self._press_pos = event.position().toPoint()
+            self.setCursor(Qt.CursorShape.ClosedHandCursor)
+            event.accept()
+        else:
+            super().mousePressEvent(event)
+
+    def mouseMoveEvent(self, event):
+        if self._press_pos is None or not (event.buttons() & Qt.MouseButton.LeftButton):
+            return
+        if (event.position().toPoint() - self._press_pos).manhattanLength() < QApplication.startDragDistance():
+            return
+        hot_spot, self._press_pos = self._press_pos, None
+        self._start_drag(hot_spot)
+
+    def mouseReleaseEvent(self, event):
+        self.setCursor(Qt.CursorShape.OpenHandCursor)
+        press, self._press_pos = self._press_pos, None
+        # simple clic (sans glisser) sur le rond du personnage : choix de l'icône
+        if press is not None and self.avatar.geometry().contains(press):
+            ctl, pseudo, parent = self._ctl, self.pseudo, self.window()
+            QTimer.singleShot(0, lambda: open_portrait_dialog(ctl, pseudo, parent))
+
+    def _start_drag(self, hot_spot):
+        drag = QDrag(self)
+        mime = QMimeData()
+        mime.setData(ROW_MIME, self.pseudo.encode("utf-8"))
+        drag.setMimeData(mime)
+        ghost = self.grab()
+        faded = QPixmap(ghost.size())
+        faded.fill(Qt.GlobalColor.transparent)
+        painter = QPainter(faded)
+        painter.setOpacity(0.85)
+        painter.drawPixmap(0, 0, ghost)
+        painter.end()
+        drag.setPixmap(faded)
+        drag.setHotSpot(hot_spot)
+        effect = QGraphicsOpacityEffect(self)
+        effect.setOpacity(0.35)
+        self.setGraphicsEffect(effect)      # la ligne d'origine s'estompe pendant le déplacement
+        drag.exec(Qt.DropAction.MoveAction)
+        self.setGraphicsEffect(None)
+        self.setCursor(Qt.CursorShape.OpenHandCursor)
+
+
+class _RowsInner(QWidget):
+    """Conteneur des lignes : reçoit le dépôt et dessine le repère d'insertion."""
+
+    def __init__(self, area: "RowsArea"):
+        super().__init__()
+        self.setObjectName("pageInner")
+        self.area = area
+        self.rows: list[CharacterRow] = []
+        self.drop_index: int | None = None
+        self.setAcceptDrops(True)
+
+    def index_at(self, y: int) -> int:
+        for i, row in enumerate(self.rows):
+            if y < row.geometry().center().y():
+                return i
+        return len(self.rows)
+
+    def dragEnterEvent(self, event):
+        if event.mimeData().hasFormat(ROW_MIME):
+            event.acceptProposedAction()
+
+    def dragMoveEvent(self, event):
+        if not event.mimeData().hasFormat(ROW_MIME):
+            return
+        pos = event.position().toPoint()
+        self.drop_index = self.index_at(pos.y())
+        self.update()
+        self.area.autoscroll(self.mapTo(self.area.viewport(), pos).y())
+        event.acceptProposedAction()
+
+    def dragLeaveEvent(self, event):
+        self.drop_index = None
+        self.update()
+
+    def dropEvent(self, event):
+        if not event.mimeData().hasFormat(ROW_MIME):
+            return
+        pseudo = bytes(event.mimeData().data(ROW_MIME)).decode("utf-8")
+        order = [r.pseudo for r in self.rows]
+        index = self.index_at(event.position().toPoint().y())
+        self.drop_index = None
+        self.update()
+        if pseudo in order:
+            source = order.index(pseudo)
+            order.pop(source)
+            order.insert(index - 1 if index > source else index, pseudo)
+            # émis après la fin du glisser : les lignes sont reconstruites à ce moment-là
+            QTimer.singleShot(0, lambda: self.area.reordered.emit(order))
+        event.acceptProposedAction()
+
+    def paintEvent(self, event):
+        super().paintEvent(event)
+        if self.drop_index is None or not self.rows:
+            return
+        if self.drop_index < len(self.rows):
+            y = self.rows[self.drop_index].geometry().top() - 4
+        else:
+            y = self.rows[-1].geometry().bottom() + 4
+        painter = QPainter(self)
+        painter.setRenderHint(QPainter.RenderHint.Antialiasing)
+        painter.setPen(Qt.PenStyle.NoPen)
+        painter.setBrush(QColor(ACCENT2))
+        painter.drawRoundedRect(8, y - 1, self.width() - 16, 3, 1.5, 1.5)
+
+
+class RowsArea(QScrollArea):
+    """Liste des personnages dont les lignes se réordonnent par glisser-déposer."""
+
+    reordered = Signal(list)
+
+    def __init__(self):
+        super().__init__()
+        self.setWidgetResizable(True)
+        self.setFrameShape(QFrame.Shape.NoFrame)
+        self.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
+        self._inner = _RowsInner(self)
+        self._layout = QVBoxLayout(self._inner)
+        self._layout.setContentsMargins(0, 4, 8, 4)
+        self._layout.setSpacing(8)
+        self._layout.addStretch(1)
+        self.setWidget(self._inner)
+
+    def set_rows(self, rows: list[CharacterRow]) -> None:
+        for old in self._inner.rows:
+            self._layout.removeWidget(old)
+            old.deleteLater()
+        self._inner.rows = rows
+        for i, row in enumerate(rows):
+            self._layout.insertWidget(i, row)
+
+    def autoscroll(self, y: int) -> None:
+        """Fait défiler la liste quand on approche du bord pendant un glisser."""
+        bar, margin = self.verticalScrollBar(), 36
+        if y < margin:
+            bar.setValue(bar.value() - 14)
+        elif y > self.viewport().height() - margin:
+            bar.setValue(bar.value() + 14)
 
 
 class CharactersPage(QWidget):
@@ -350,21 +516,18 @@ class CharactersPage(QWidget):
         left.setSpacing(6)
         head = QHBoxLayout()
         head.setContentsMargins(12, 0, 12, 0)
-        head.setSpacing(10)
-        head.addSpacing(42)
+        head.setSpacing(8)
+        head.addSpacing(72)          # rang + rond, pour aligner « PERSONNAGE » sur les noms
         head.addWidget(label("PERSONNAGE", "colhead"), 1)
-        for text, width in (("AUTOFOCUS", EVENTS_WIDTH), ("PRINC.", CHIP), ("", EXCLUDE_WIDTH)):
+        for text, width in (("AUTOFOCUS", EVENTS_WIDTH), ("PRINC.", CHIP), ("EXCL.", EXCLUDE_WIDTH)):
             col = label(text, "colhead")
             col.setFixedWidth(width)
             col.setAlignment(Qt.AlignmentFlag.AlignCenter)
             head.addWidget(col)
         left.addLayout(head)
-        self.list = QListWidget()
-        self.list.setDragDropMode(QAbstractItemView.DragDropMode.InternalMove)
-        self.list.setSelectionMode(QAbstractItemView.SelectionMode.NoSelection)
-        self.list.setVerticalScrollMode(QAbstractItemView.ScrollMode.ScrollPerPixel)
-        self.list.model().rowsMoved.connect(lambda *a: QTimer.singleShot(0, self._order_changed))
-        left.addWidget(self.list, 1)
+        self.rows_area = RowsArea()
+        self.rows_area.reordered.connect(self._order_changed)
+        left.addWidget(self.rows_area, 1)
         self.empty = label("Aucune fenêtre Dofus Rétro détectée.\nLance le jeu, elles apparaîtront ici.", "muted")
         self.empty.setAlignment(Qt.AlignmentFlag.AlignCenter)
         left.addWidget(self.empty)
@@ -440,7 +603,7 @@ class CharactersPage(QWidget):
         right.addStretch(1)
         side = QWidget()
         side.setObjectName("pageInner")
-        side.setFixedWidth(330)
+        side.setFixedWidth(300)
         side.setLayout(right)
         right.setContentsMargins(0, 0, 0, 0)
         row.addWidget(side)
@@ -454,23 +617,14 @@ class CharactersPage(QWidget):
         self._refresh_presets()
 
     def rebuild(self):
-        self.list.blockSignals(True)
-        self.list.clear()
         order = self.ctl.order()
-        for pseudo in order:
-            item = QListWidgetItem()
-            item.setData(Qt.ItemDataRole.UserRole, pseudo)
-            item.setSizeHint(QSize(100, 66))
-            self.list.addItem(item)
-            self.list.setItemWidget(item, CharacterRow(self.ctl, pseudo))
-        self.list.blockSignals(False)
+        self.rows_area.set_rows([CharacterRow(self.ctl, pseudo, rank) for rank, pseudo in enumerate(order, 1)])
         self.empty.setVisible(not order)
         online = len(self.ctl.windows)
         self.tile_online.set_all(str(online), "connecté" + ("s" if online > 1 else ""))
         self.tile_total.set_all(str(len(order)), "personnage" + ("s" if len(order) > 1 else ""))
 
-    def _order_changed(self):
-        order = [self.list.item(i).data(Qt.ItemDataRole.UserRole) for i in range(self.list.count())]
+    def _order_changed(self, order: list):
         self.ctl.set_order(order)
 
     def _apply_order(self):
@@ -995,8 +1149,8 @@ class MainWindow(QMainWindow):
         self._first_check = True
         self.setWindowTitle(APP_NAME)
         self.setWindowIcon(make_icon())
-        self.resize(1120, 740)
-        self.setMinimumSize(980, 640)
+        self.resize(1200, 760)
+        self.setMinimumSize(1100, 640)
 
         root = QWidget()
         root.setObjectName("root")

@@ -61,7 +61,7 @@ QFrame#tileHot QLabel#tileLabel {{ color: rgba(255,255,255,85%); }}
 QFrame#banner {{ background: #3A1B16; border-radius: 16px; }}
 QFrame#banner QLabel {{ color: #FFC9BE; }}
 
-QPushButton {{ background: {FIELD}; color: {TXT}; border: none; border-radius: 17px; padding: 8px 18px;
+QPushButton {{ background: {FIELD}; color: {TXT}; border: none; border-radius: 16px; padding: 8px 18px;
               font-weight: 600; }}
 QPushButton:hover {{ background: {FIELD_HOVER}; }}
 QPushButton:pressed {{ background: #3A3A41; }}
@@ -78,10 +78,10 @@ QProgressBar::chunk {{ border-radius: 4px; background: qlineargradient(x1:0, y1:
 QPushButton#portrait {{ padding: 0; border-radius: 16px; background: {FIELD}; border: 1px solid transparent; }}
 QPushButton#portrait:hover {{ background: {FIELD_HOVER}; }}
 QPushButton#portrait:checked {{ background: rgba(255,90,54,22%); border: 1px solid {ACCENT}; }}
-QPushButton#chip {{ padding: 0; font-size: 12pt; border-radius: 17px; background: {FIELD}; }}
-QPushButton#chip:checked {{ background: rgba(255,90,54,22%); border: 1px solid {ACCENT}; border-radius: 17px; }}
-QPushButton#chip:hover {{ background: {FIELD_HOVER}; border-radius: 17px; }}
-QPushButton#chip:checked:hover {{ background: rgba(255,90,54,34%); border: 1px solid {ACCENT}; border-radius: 17px; }}
+QPushButton#chip {{ padding: 0; font-size: 12pt; border-radius: 16px; background: {FIELD}; }}
+QPushButton#chip:checked {{ background: rgba(255,90,54,22%); border: 1px solid {ACCENT}; border-radius: 16px; }}
+QPushButton#chip:hover {{ background: {FIELD_HOVER}; border-radius: 16px; }}
+QPushButton#chip:checked:hover {{ background: rgba(255,90,54,34%); border: 1px solid {ACCENT}; border-radius: 16px; }}
 QPushButton#pill {{ padding: 6px 14px; color: {MUTED}; }}
 QPushButton#pill:checked {{ background: {ACCENT}; color: white; }}
 QPushButton#banner {{ background: transparent; color: #FFC9BE; text-align: left; padding: 10px 16px;
