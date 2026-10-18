@@ -42,12 +42,20 @@ Tu les utilises à tes risques ; les auteurs déclinent toute responsabilité.
 
 ## Installation
 
-1. Télécharge `Kalkid-Retro.exe` depuis la
+1. Télécharge **`Kalkid-Retro-Setup.exe`** depuis la
    [dernière version](https://github.com/KalDT13/Kalkid-Retro/releases/latest) (section **Releases**).
-2. Lance-le. Windows SmartScreen peut afficher un avertissement (programme non signé) : *Informations
-   complémentaires > Exécuter quand même*. L'application intercepte des raccourcis clavier, ce qui
-   déclenche cette alerte sur ce type d'outil.
-3. **Pour l'autofocus** :
+2. Lance l'installateur. Windows SmartScreen peut afficher un avertissement (programme non signé) :
+   *Informations complémentaires > Exécuter quand même*. L'application intercepte des raccourcis
+   clavier, ce qui déclenche cette alerte sur ce type d'outil.
+3. L'assistant (en français) **vérifie ton PC** (Windows, notifications, Dofus Rétro), installe
+   l'application dans son propre dossier (sans droits administrateur), puis propose un raccourci sur le
+   Bureau et le lancement au démarrage de Windows. Un désinstalleur est ajouté à « Applications
+   installées ».
+
+> `Kalkid-Retro.exe` (sans « Setup ») est la version portable : à lancer directement, sans installation.
+> C'est aussi le fichier que la mise à jour intégrée télécharge.
+
+4. **Pour l'autofocus** :
    - en jeu : *Options > Général > Notification en arrière-plan* ;
    - Windows : *Paramètres > Système > Notifications* activées ;
    - optionnel : couper le son des notifications de l'application Dofus.
