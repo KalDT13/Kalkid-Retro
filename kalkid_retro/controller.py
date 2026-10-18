@@ -22,6 +22,7 @@ class Controller(QObject):
     chat_pos_changed = Signal()
     chat_capture_state = Signal(bool)     # True pendant l'attente du clic sur le chat
     capture_finished = Signal(bool, str)  # succès, message
+    taskbar_done = Signal(bool, str)      # rangement de la barre des tâches : succès, message
     hotkey_captured = Signal(str, str)  # nom de l'action, raccourci capturé
 
     def __init__(self, config: Config):
@@ -33,6 +34,7 @@ class Controller(QObject):
         self._busy_click = False
         self._busy_invite = False
         self._capturing_chat = False
+        self._busy_taskbar = False
         self._stop = threading.Event()
 
         # Mis à jour par un thread : les hooks ne doivent jamais interroger Windows (trop lent)
@@ -126,6 +128,38 @@ class Controller(QObject):
         main = self.cfg.get("main", default="")
         if main:
             self.focus_pseudo(main)
+
+    # --- barre des tâches -------------------------------------------------------
+    def apply_taskbar_order(self) -> None:
+        """Range les fenêtres de la barre des tâches dans l'ordre de la liste (ordre d'initiative)."""
+        if self._busy_taskbar:
+            return
+        threading.Thread(target=self._taskbar, args=(True,), daemon=True, name="kalkid-taskbar").start()
+
+    def restore_taskbar(self) -> None:
+        if self._busy_taskbar:
+            return
+        threading.Thread(target=self._taskbar, args=(False,), daemon=True, name="kalkid-taskbar").start()
+
+    def _taskbar(self, apply: bool) -> None:
+        self._busy_taskbar = True
+        try:
+            self.refresh_windows()
+            hwnds = [w.hwnd for w in self.active_windows()]
+            if not hwnds:
+                self.log.emit("error", "Aucune fenêtre Dofus Rétro ouverte.")
+                self.taskbar_done.emit(False, "Aucune fenêtre Dofus Rétro ouverte.")
+                return
+            if apply:
+                count = winutil.reorder_taskbar(hwnds)
+                message = f"{count} fenêtre{'s' if count > 1 else ''} rangée{'s' if count > 1 else ''} dans l'ordre de la liste."
+            else:
+                count = winutil.restore_taskbar_grouping(hwnds)
+                message = "Regroupement d'origine rétabli."
+            self.log.emit("ok", message)
+            self.taskbar_done.emit(count > 0, message if count > 0 else "Windows a refusé la modification.")
+        finally:
+            self._busy_taskbar = False
 
     # --- portraits --------------------------------------------------------------
     def portrait_key(self, pseudo: str) -> str | None:

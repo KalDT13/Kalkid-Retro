@@ -41,6 +41,8 @@ user32.ScreenToClient.argtypes = [wintypes.HWND, ctypes.POINTER(wintypes.POINT)]
 user32.ClientToScreen.argtypes = [wintypes.HWND, ctypes.POINTER(wintypes.POINT)]
 user32.SetCursorPos.argtypes = [ctypes.c_int, ctypes.c_int]
 user32.IsWindow.argtypes = [wintypes.HWND]
+user32.SetWindowPos.argtypes = [wintypes.HWND, wintypes.HWND, ctypes.c_int, ctypes.c_int, ctypes.c_int,
+                                ctypes.c_int, wintypes.UINT]
 
 
 @dataclass(frozen=True)
@@ -202,6 +204,99 @@ def post_click(hwnd: int, x: int, y: int) -> None:
     user32.PostMessageW(target, WM_MOUSEMOVE, 0, lparam)
     user32.PostMessageW(target, WM_LBUTTONDOWN, MK_LBUTTON, lparam)
     user32.PostMessageW(target, WM_LBUTTONUP, 0, lparam)
+
+
+# --- Ordre des boutons dans la barre des tâches -------------------------------
+# Windows range les boutons de la barre des tâches dans l'ordre où les fenêtres y arrivent. En changeant
+# l'identifiant de groupe (AppUserModelID) de chaque fenêtre dans l'ordre voulu, on les dissocie puis on
+# les regroupe dans cet ordre.
+class _GUID(ctypes.Structure):
+    _fields_ = [("Data1", ctypes.c_ulong), ("Data2", ctypes.c_ushort), ("Data3", ctypes.c_ushort),
+                ("Data4", ctypes.c_ubyte * 8)]
+
+
+class _PROPERTYKEY(ctypes.Structure):
+    _fields_ = [("fmtid", _GUID), ("pid", ctypes.c_ulong)]
+
+
+class _PROPVARIANT(ctypes.Structure):
+    # PROPVARIANT fait 24 octets en 64 bits : type (2) + réservé (6) + union de 16 octets
+    _fields_ = [("vt", ctypes.c_ushort), ("r1", ctypes.c_ushort), ("r2", ctypes.c_ushort),
+                ("r3", ctypes.c_ushort), ("ptr", ctypes.c_void_p), ("pad", ctypes.c_void_p)]
+
+
+def _guid(text: str) -> _GUID:
+    import uuid
+    return _GUID.from_buffer_copy(uuid.UUID(text).bytes_le)
+
+
+_PKEY_APPUSERMODEL_ID = _PROPERTYKEY(_guid("{9F4C2855-9F79-4B39-A8D0-E1D42DE1D5F3}"), 5)
+_IID_IPROPERTYSTORE = _guid("{886D8EEB-8CF2-4446-8D02-CDBA1DBDCF99}")
+_VT_EMPTY, _VT_LPWSTR = 0, 31
+GROUP_ID = "KalkidRetro.DofusRetro"
+
+
+def set_app_id(hwnd: int, app_id: str | None) -> bool:
+    """Définit l'identifiant de groupe de la barre des tâches d'une fenêtre (None = valeur par défaut)."""
+    shell32 = ctypes.WinDLL("shell32")
+    shell32.SHGetPropertyStoreForWindow.restype = ctypes.HRESULT
+    shell32.SHGetPropertyStoreForWindow.argtypes = [wintypes.HWND, ctypes.POINTER(_GUID),
+                                                    ctypes.POINTER(ctypes.c_void_p)]
+    store = ctypes.c_void_p()
+    try:
+        shell32.SHGetPropertyStoreForWindow(hwnd, ctypes.byref(_IID_IPROPERTYSTORE), ctypes.byref(store))
+    except OSError:
+        return False
+    if not store.value:
+        return False
+    vtable = ctypes.cast(ctypes.cast(store.value, ctypes.POINTER(ctypes.c_void_p))[0],
+                         ctypes.POINTER(ctypes.c_void_p))
+    release = ctypes.WINFUNCTYPE(ctypes.c_ulong, ctypes.c_void_p)(vtable[2])
+    set_value = ctypes.WINFUNCTYPE(ctypes.HRESULT, ctypes.c_void_p, ctypes.POINTER(_PROPERTYKEY),
+                                   ctypes.POINTER(_PROPVARIANT))(vtable[6])
+    commit = ctypes.WINFUNCTYPE(ctypes.HRESULT, ctypes.c_void_p)(vtable[7])
+    try:
+        value = _PROPVARIANT()
+        buffer = None
+        if app_id:
+            buffer = ctypes.create_unicode_buffer(app_id)      # doit rester vivant pendant SetValue
+            value.vt = _VT_LPWSTR
+            value.ptr = ctypes.cast(buffer, ctypes.c_void_p).value
+        else:
+            value.vt = _VT_EMPTY
+        set_value(store.value, ctypes.byref(_PKEY_APPUSERMODEL_ID), ctypes.byref(value))
+        commit(store.value)
+        return True
+    except OSError:
+        return False
+    finally:
+        release(store.value)
+
+
+def reorder_taskbar(hwnds: list[int]) -> int:
+    """Range les fenêtres dans l'ordre donné (barre des tâches et Alt+Tab). Retourne le nombre de fenêtres traitées."""
+    hwnds = [h for h in hwnds if is_valid(h)]
+    if len(hwnds) < 2:
+        return len(hwnds)
+    done = 0
+    for h in hwnds:                       # 1) dissocie : un identifiant unique par fenêtre, dans l'ordre voulu
+        done += bool(set_app_id(h, f"KalkidRetro.Window.{h}"))
+        time.sleep(0.12)
+    time.sleep(0.3)
+    flags = 0x0010 | 0x0002 | 0x0001      # SWP_NOACTIVATE | SWP_NOMOVE | SWP_NOSIZE
+    for upper, lower in zip(hwnds, hwnds[1:]):   # 2) ordre d'empilement (Alt+Tab), sans changer de fenêtre active
+        user32.SetWindowPos(upper, lower, 0, 0, 0, 0, flags)
+        time.sleep(0.05)
+    time.sleep(0.2)
+    for h in hwnds:                       # 3) regroupe, toujours dans l'ordre
+        set_app_id(h, GROUP_ID)
+        time.sleep(0.12)
+    return done
+
+
+def restore_taskbar_grouping(hwnds: list[int]) -> int:
+    """Rétablit le regroupement d'origine (identifiant par défaut)."""
+    return sum(bool(set_app_id(h, None)) for h in hwnds if is_valid(h))
 
 
 # --- Clignotement de la barre des tâches --------------------------------------

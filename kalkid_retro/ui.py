@@ -397,6 +397,25 @@ class CharactersPage(QWidget):
         al.addLayout(chips)
         right.addWidget(allbox)
 
+        taskbar, tl = card()
+        tl.addWidget(label("Barre des tâches", "cardTitle"))
+        tl.addWidget(label("Glisse les personnages dans l'ordre d'initiative, puis range les fenêtres dans la "
+                           "barre des tâches (et Alt+Tab) dans le même ordre.", "muted", wrap=True))
+        self.taskbar_status = label("", "muted", wrap=True)
+        tb_row = QHBoxLayout()
+        self.apply_btn = QPushButton("Appliquer l'ordre")
+        self.apply_btn.setObjectName("primary")
+        self.apply_btn.clicked.connect(self._apply_order)
+        self.restore_btn = QPushButton("Rétablir")
+        self.restore_btn.setToolTip("Remet le regroupement d'origine de la barre des tâches")
+        self.restore_btn.clicked.connect(self._restore_order)
+        tb_row.addWidget(self.apply_btn, 1)
+        tb_row.addWidget(self.restore_btn)
+        tl.addLayout(tb_row)
+        tl.addWidget(self.taskbar_status)
+        right.addWidget(taskbar)
+        ctl.taskbar_done.connect(self._taskbar_done)
+
         presets, pl = card()
         pl.addWidget(label("Presets", "cardTitle"))
         pl.addWidget(label("Enregistre l'ordre, le principal, les exclusions et l'autofocus.", "muted", wrap=True))
@@ -453,6 +472,26 @@ class CharactersPage(QWidget):
     def _order_changed(self):
         order = [self.list.item(i).data(Qt.ItemDataRole.UserRole) for i in range(self.list.count())]
         self.ctl.set_order(order)
+
+    def _apply_order(self):
+        self._set_taskbar_busy("Rangement en cours…")
+        self.ctl.apply_taskbar_order()
+
+    def _restore_order(self):
+        self._set_taskbar_busy("Rétablissement en cours…")
+        self.ctl.restore_taskbar()
+
+    def _set_taskbar_busy(self, text: str):
+        self.apply_btn.setEnabled(False)
+        self.restore_btn.setEnabled(False)
+        self.taskbar_status.setStyleSheet("")
+        self.taskbar_status.setText(text)
+
+    def _taskbar_done(self, ok: bool, message: str):
+        self.apply_btn.setEnabled(True)
+        self.restore_btn.setEnabled(True)
+        self.taskbar_status.setStyleSheet(f"color: {OK if ok else ERR};")
+        self.taskbar_status.setText(message)
 
     def _toggle_column(self, key: str):
         order = self.ctl.order()
