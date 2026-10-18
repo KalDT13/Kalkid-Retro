@@ -5,6 +5,7 @@ from __future__ import annotations
 import ctypes
 import queue
 import threading
+import time
 from ctypes import wintypes
 from typing import Callable
 
@@ -16,6 +17,9 @@ WM_KEYDOWN, WM_KEYUP, WM_SYSKEYDOWN, WM_SYSKEYUP = 0x0100, 0x0101, 0x0104, 0x010
 WM_LBUTTONDOWN, WM_LBUTTONUP = 0x0201, 0x0202
 WM_MBUTTONDOWN, WM_MBUTTONUP = 0x0207, 0x0208
 WM_QUIT = 0x0012
+WM_MOUSEMOVE = 0x0200
+WM_APP_REFRESH = 0x8001   # message interne : réévaluer quels hooks installer
+_BUTTON_MESSAGES = frozenset((0x0201, 0x0202, 0x0207, 0x0208))
 
 MOD_CTRL, MOD_ALT, MOD_SHIFT, MOD_WIN = 1, 2, 4, 8
 _MOD_KEYS = {0x10: MOD_SHIFT, 0xA0: MOD_SHIFT, 0xA1: MOD_SHIFT,
@@ -131,9 +135,15 @@ def _current_mods() -> int:
 class HookManager:
     """Gère les hooks clavier/souris dans un thread dédié.
 
-    Les callbacks ne sont jamais exécutés dans le hook (Windows coupe les hooks lents) :
-    ils passent par une file traitée par un thread de travail.
+    Règles de sécurité (un hook global mal écrit peut bloquer la souris et le clavier de TOUT Windows) :
+    - un callback de hook ne fait que des tests mémoire : jamais d'appel vers une autre application ;
+    - tout le travail passe par une file traitée par un autre thread ;
+    - le hook souris n'est installé que lorsqu'il est utile (clic molette activé ou capture d'un clic) ;
+    - un chien de garde retire les hooks si un callback dure trop longtemps, au lieu de laisser Windows figé.
     """
+
+    WATCHDOG_LIMIT = 0.5      # secondes : au-delà, un callback est considéré comme bloqué
+    RESUME_DELAY = 10.0       # secondes avant de remettre les hooks après une coupure d'urgence
 
     def __init__(self):
         self._bindings: dict[tuple[int, int], tuple[Callable[[], None], bool]] = {}
@@ -142,7 +152,8 @@ class HookManager:
         self._condition: Callable[[], bool] = lambda: True
         self._capture: Callable[[str], None] | None = None
         self._click_capture: tuple[Callable[[], None], Callable[[], None]] | None = None
-        self._swallow_up = False
+        self._swallow_up = False          # relâchement du clic gauche à avaler (capture du chat)
+        self._swallow_middle_up = False   # relâchement du clic molette à avaler (cohérence haut/bas)
         self._lock = threading.Lock()
         self._pressed: set[int] = set()
         self._queue: queue.Queue = queue.Queue()
@@ -156,23 +167,43 @@ class HookManager:
         self._fg_proc = WINEVENTPROC(self._foreground_event)
         self._fg_hook = None
         self._on_foreground: Callable[[int], None] | None = None
+        self._fg_pending = 0
+        self._fg_event = threading.Event()
+        self._busy_since = 0.0            # début du callback en cours (0 = aucun)
+        self._suspended = False
+        self.on_suspended: Callable[[str], None] | None = None
         self._running = False
 
     @property
     def installed(self) -> bool:
-        """Vrai si les deux hooks (clavier et souris) sont bien en place."""
-        return bool(self._kb_hook and self._ms_hook)
+        """Vrai si le hook clavier est en place (le hook souris est installé seulement si besoin)."""
+        return bool(self._kb_hook) and not self._suspended
+
+    @property
+    def suspended(self) -> bool:
+        return self._suspended
 
     def set_foreground_callback(self, fn: Callable[[int], None]) -> None:
-        """fn(hwnd) est appelé à chaque changement de fenêtre au premier plan (sans polling)."""
+        """fn(hwnd) est appelé à chaque changement de fenêtre au premier plan (dans un thread à part)."""
         self._on_foreground = fn
 
     def _foreground_event(self, hook, event, hwnd, id_object, id_child, thread, time_ms):
-        if self._on_foreground:
-            try:
-                self._on_foreground(int(hwnd or 0))
-            except Exception:
-                pass
+        # Ne fait RIEN d'autre que noter la fenêtre : ce callback tourne dans le thread des hooks.
+        self._fg_pending = int(hwnd or 0)
+        self._fg_event.set()
+
+    def _foreground_worker(self) -> None:
+        while self._running:
+            self._fg_event.wait()
+            self._fg_event.clear()
+            if not self._running:
+                return
+            callback, hwnd = self._on_foreground, self._fg_pending
+            if callback:
+                try:
+                    callback(hwnd)
+                except Exception:
+                    pass
 
     # --- configuration ----------------------------------------------------------
     def set_condition(self, fn: Callable[[], bool]) -> None:
@@ -192,6 +223,7 @@ class HookManager:
     def set_middle_click(self, callback: Callable[[], None] | None, enabled: Callable[[], bool]) -> None:
         self._middle = callback
         self._middle_enabled = enabled
+        self.refresh_mouse_hook()
 
     def capture_next(self, callback: Callable[[str], None]) -> None:
         """Le prochain raccourci pressé est transmis à callback (puis consommé)."""
@@ -205,44 +237,72 @@ class HookManager:
         la touche Échap annule et déclenche on_cancel."""
         self._swallow_up = False
         self._click_capture = (on_click, on_cancel)
+        self.refresh_mouse_hook()
 
     def cancel_click_capture(self) -> None:
         self._click_capture = None
+        self.refresh_mouse_hook()
 
     # --- cycle de vie -----------------------------------------------------------
     def start(self) -> None:
         if self._running:
             return
         self._running = True
-        self._worker = threading.Thread(target=self._work, daemon=True, name="kalkid-hotkey-worker")
-        self._worker.start()
-        self._thread = threading.Thread(target=self._run_hooks, daemon=True, name="kalkid-hooks")
-        self._thread.start()
+        for target, name in ((self._work, "kalkid-hotkey-worker"), (self._foreground_worker, "kalkid-foreground"),
+                             (self._watchdog, "kalkid-watchdog"), (self._run_hooks, "kalkid-hooks")):
+            threading.Thread(target=target, daemon=True, name=name).start()
 
     def stop(self) -> None:
         if not self._running:
             return
         self._running = False
+        self._fg_event.set()
         if self._tid:
             user32.PostThreadMessageW(self._tid, WM_QUIT, 0, 0)
         self._queue.put(None)
 
+    def refresh_mouse_hook(self) -> None:
+        """Demande au thread des hooks d'installer ou de retirer le hook souris selon le besoin."""
+        if self._tid:
+            user32.PostThreadMessageW(self._tid, WM_APP_REFRESH, 0, 0)
+
+    def _need_mouse_hook(self) -> bool:
+        try:
+            return self._click_capture is not None or (self._middle is not None and bool(self._middle_enabled()))
+        except Exception:
+            return False
+
+    def _sync_hooks(self) -> None:
+        """(Ré)installe les hooks nécessaires, retire ceux qui ne servent plus. Thread des hooks uniquement."""
+        hmod = kernel32.GetModuleHandleW(None)
+        if self._suspended:
+            return
+        if not self._kb_hook:
+            self._kb_hook = user32.SetWindowsHookExW(WH_KEYBOARD_LL, self._kb_proc, hmod, 0)
+        want_mouse = self._need_mouse_hook()
+        if want_mouse and not self._ms_hook:
+            self._ms_hook = user32.SetWindowsHookExW(WH_MOUSE_LL, self._ms_proc, hmod, 0)
+        elif not want_mouse and self._ms_hook:
+            user32.UnhookWindowsHookEx(self._ms_hook)
+            self._ms_hook = None
+
     def _run_hooks(self) -> None:
         self._tid = kernel32.GetCurrentThreadId()
-        hmod = kernel32.GetModuleHandleW(None)
-        self._kb_hook = user32.SetWindowsHookExW(WH_KEYBOARD_LL, self._kb_proc, hmod, 0)
-        self._ms_hook = user32.SetWindowsHookExW(WH_MOUSE_LL, self._ms_proc, hmod, 0)
+        self._sync_hooks()
         self._fg_hook = user32.SetWinEventHook(EVENT_SYSTEM_FOREGROUND, EVENT_SYSTEM_FOREGROUND, None,
                                                self._fg_proc, 0, 0, WINEVENT_OUTOFCONTEXT)
         self._foreground_event(None, 0, user32.GetForegroundWindow(), 0, 0, 0, 0)   # état initial
         msg = wintypes.MSG()
         while user32.GetMessageW(ctypes.byref(msg), None, 0, 0) > 0:
+            if msg.message == WM_APP_REFRESH:
+                self._sync_hooks()
+                continue
             user32.TranslateMessage(ctypes.byref(msg))
             user32.DispatchMessageW(ctypes.byref(msg))
-        if self._kb_hook:
-            user32.UnhookWindowsHookEx(self._kb_hook)
-        if self._ms_hook:
-            user32.UnhookWindowsHookEx(self._ms_hook)
+        for handle in (self._kb_hook, self._ms_hook):
+            if handle:
+                user32.UnhookWindowsHookEx(handle)
+        self._kb_hook = self._ms_hook = None
         if self._fg_hook:
             user32.UnhookWinEvent(self._fg_hook)
 
@@ -257,8 +317,40 @@ class HookManager:
                 import traceback
                 traceback.print_exc()
 
+    # --- chien de garde ---------------------------------------------------------
+    def _watchdog(self) -> None:
+        """Si un callback de hook reste bloqué, Windows attend notre programme avant de livrer chaque clic ou
+        touche : tout le système se fige. On retire alors les hooks depuis ce thread (libère Windows), puis on
+        les remet plus tard."""
+        while self._running:
+            time.sleep(0.1)
+            since = self._busy_since
+            if since and time.monotonic() - since > self.WATCHDOG_LIMIT and not self._suspended:
+                self._emergency_unhook()
+
+    def _emergency_unhook(self) -> None:
+        self._suspended = True
+        self._busy_since = 0.0
+        for handle in (self._kb_hook, self._ms_hook):
+            if handle:
+                user32.UnhookWindowsHookEx(handle)
+        self._kb_hook = self._ms_hook = None
+        callback = self.on_suspended
+        if callback:
+            try:
+                callback("Un blocage des raccourcis a été détecté : ils sont suspendus quelques secondes.")
+            except Exception:
+                pass
+        threading.Timer(self.RESUME_DELAY, self._resume).start()
+
+    def _resume(self) -> None:
+        self._suspended = False
+        self._busy_since = 0.0
+        self.refresh_mouse_hook()
+
     # --- hooks ------------------------------------------------------------------
     def _keyboard_proc(self, n_code, w_param, l_param):
+        self._busy_since = time.monotonic()
         try:
             if n_code >= 0:
                 info = ctypes.cast(l_param, ctypes.POINTER(KBDLLHOOKSTRUCT)).contents
@@ -274,6 +366,8 @@ class HookManager:
                         self._pressed.discard(vk)
         except Exception:
             pass
+        finally:
+            self._busy_since = 0.0
         return user32.CallNextHookEx(None, n_code, w_param, l_param)
 
     def _handle_key(self, vk: int, first: bool) -> bool:
@@ -303,10 +397,16 @@ class HookManager:
         return True
 
     def _mouse_proc(self, n_code, w_param, l_param):
+        # Chemin rapide : les déplacements de souris (de loin les plus fréquents) ne sont jamais examinés.
+        if n_code < 0 or w_param == WM_MOUSEMOVE:
+            return user32.CallNextHookEx(None, n_code, w_param, l_param)
+        if w_param not in _BUTTON_MESSAGES:
+            return user32.CallNextHookEx(None, n_code, w_param, l_param)
+        self._busy_since = time.monotonic()
         try:
-            if n_code >= 0 and w_param in (WM_LBUTTONDOWN, WM_LBUTTONUP):
-                info = ctypes.cast(l_param, ctypes.POINTER(MSLLHOOKSTRUCT)).contents
-                if not (info.flags & MOUSE_INJECTED):
+            info = ctypes.cast(l_param, ctypes.POINTER(MSLLHOOKSTRUCT)).contents
+            if not (info.flags & MOUSE_INJECTED):
+                if w_param in (WM_LBUTTONDOWN, WM_LBUTTONUP):
                     cap = self._click_capture
                     if cap is not None and w_param == WM_LBUTTONDOWN:
                         self._click_capture = None
@@ -316,13 +416,17 @@ class HookManager:
                     if self._swallow_up and w_param == WM_LBUTTONUP:
                         self._swallow_up = False
                         return 1
-            if n_code >= 0 and w_param in (WM_MBUTTONDOWN, WM_MBUTTONUP):
-                info = ctypes.cast(l_param, ctypes.POINTER(MSLLHOOKSTRUCT)).contents
-                if (not (info.flags & MOUSE_INJECTED) and self._middle is not None
-                        and self._middle_enabled() and self._condition()):
+                else:   # clic molette : on avale le relâchement si et seulement si on a avalé l'appui
                     if w_param == WM_MBUTTONDOWN:
-                        self._queue.put(self._middle)
-                    return 1
+                        if (self._middle is not None and self._middle_enabled() and self._condition()):
+                            self._swallow_middle_up = True
+                            self._queue.put(self._middle)
+                            return 1
+                    elif self._swallow_middle_up:
+                        self._swallow_middle_up = False
+                        return 1
         except Exception:
             pass
+        finally:
+            self._busy_since = 0.0
         return user32.CallNextHookEx(None, n_code, w_param, l_param)

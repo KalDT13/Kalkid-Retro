@@ -43,6 +43,7 @@ class Controller(QObject):
         self.hooks = HookManager()
         self.hooks.set_condition(lambda: self.game_fg)
         self.hooks.set_foreground_callback(self._on_foreground)
+        self.hooks.on_suspended = lambda message: self.log.emit("error", message)
         self.hooks.set_middle_click(lambda: self.click_all(True), self._wheel_enabled)
         self.notifs = NotificationWatcher(self._on_notification, self.log.emit,
                                           lambda: bool(winutil.list_windows()))
@@ -228,6 +229,7 @@ class Controller(QObject):
         if tools.get("invite_enabled"):
             bindings[hk.get("invite", "")] = (self.invite_group, True)
         self.hooks.set_bindings({k: v for k, v in bindings.items() if k})
+        self.hooks.refresh_mouse_hook()   # le hook souris n'existe que si le clic molette est activé
 
     def capture_hotkey(self, action: str) -> None:
         """Attend la prochaine combinaison pressée et l'enregistre pour `action`."""
@@ -254,8 +256,12 @@ class Controller(QObject):
             if not origin:
                 return
             x, y = winutil.cursor_client_pos(origin)
-            self.refresh_windows()
-            wins = self.active_windows()
+            # Pas d'énumération des fenêtres à chaque clic : on utilise la liste en mémoire (rafraîchie
+            # régulièrement) et on ne ré-énumère que si une fenêtre a disparu ou si la liste est vide.
+            wins = [w for w in self.active_windows() if winutil.is_valid(w.hwnd)]
+            if not wins or len(wins) < len(self.active_windows()):
+                self.refresh_windows()
+                wins = self.active_windows()
             lo = min(self.cfg.get("tools", "delay_min", default=90), self.cfg.get("tools", "delay_max", default=130))
             hi = max(self.cfg.get("tools", "delay_min", default=90), self.cfg.get("tools", "delay_max", default=130))
             t0 = time.monotonic()

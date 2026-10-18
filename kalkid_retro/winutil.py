@@ -52,13 +52,20 @@ class GameWindow:
     title: str
 
 
+user32.InternalGetWindowText.argtypes = [wintypes.HWND, wintypes.LPWSTR, ctypes.c_int]
+user32.InternalGetWindowText.restype = ctypes.c_int
+
+
 def _title(hwnd) -> str:
-    length = user32.GetWindowTextLengthW(hwnd)
-    if length <= 0:
-        return ""
-    buf = ctypes.create_unicode_buffer(length + 1)
-    user32.GetWindowTextW(hwnd, buf, length + 1)
-    return buf.value
+    """Titre d'une fenêtre SANS interroger son application.
+
+    GetWindowText envoie un message à la fenêtre d'une autre application et attend sa réponse : si cette
+    application est occupée ou bloquée, l'appelant reste bloqué. InternalGetWindowText lit le titre déjà
+    connu du système et ne peut jamais attendre une autre application.
+    """
+    buf = ctypes.create_unicode_buffer(512)
+    length = user32.InternalGetWindowText(hwnd, buf, 512)
+    return buf.value if length > 0 else ""
 
 
 def window_title(hwnd: int) -> str:
@@ -150,20 +157,14 @@ def focus(hwnd: int) -> bool:
         return False
     if user32.IsIconic(hwnd):
         user32.ShowWindow(hwnd, SW_RESTORE)
-    fg = user32.GetForegroundWindow()
-    if fg == hwnd:
+    if user32.GetForegroundWindow() == hwnd:
         return True
-    cur_tid = kernel32.GetCurrentThreadId()
-    fg_tid = user32.GetWindowThreadProcessId(fg, None) if fg else 0
-    attached = False
-    if fg_tid and fg_tid != cur_tid:
-        attached = bool(user32.AttachThreadInput(cur_tid, fg_tid, True))
-    try:
-        user32.BringWindowToTop(hwnd)
-        ok = bool(user32.SetForegroundWindow(hwnd))
-    finally:
-        if attached:
-            user32.AttachThreadInput(cur_tid, fg_tid, False)
+    # Une pression sur Alt (injectée) autorise SetForegroundWindow. On évite volontairement
+    # AttachThreadInput : relier la file de saisie à celle d'une autre application peut bloquer la souris
+    # de tout le système si cette application ne répond plus.
+    user32.keybd_event(VK_MENU, 0, 0, 0)
+    user32.keybd_event(VK_MENU, 0, KEYEVENTF_KEYUP, 0)
+    ok = bool(user32.SetForegroundWindow(hwnd))
     return ok or foreground_hwnd() == hwnd
 
 
@@ -320,6 +321,7 @@ INPUT_MOUSE, INPUT_KEYBOARD = 0, 1
 KEYEVENTF_KEYUP, KEYEVENTF_UNICODE = 0x0002, 0x0004
 MOUSEEVENTF_LEFTDOWN, MOUSEEVENTF_LEFTUP = 0x0002, 0x0004
 VK_RETURN = 0x0D
+VK_MENU = 0x12   # touche Alt
 
 
 class KEYBDINPUT(ctypes.Structure):
