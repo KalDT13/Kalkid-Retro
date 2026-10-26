@@ -75,6 +75,7 @@ QPushButton#heroBtn:hover {{ background: #26262A; }}
 QDialog {{ background: {BG}; }}
 NoteWindow {{ background: {BG}; }}
 QFrame#noteRow {{ background: {CARD}; border: 1px solid {CARD_BORDER}; border-radius: 12px; }}
+QPushButton#mini {{ padding: 3px 7px; font-size: 8pt; border-radius: 9px; }}
 QPushButton#ghost {{ background: transparent; color: {MUTED}; padding: 0; border-radius: 12px; font-weight: 700; }}
 QPushButton#ghost:hover {{ background: rgba(255,90,90,18%); color: {ERR}; }}
 QCheckBox {{ spacing: 8px; background: transparent; }}
