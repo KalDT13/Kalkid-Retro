@@ -38,6 +38,7 @@ class Controller(QObject):
     invite_finished = Signal(bool, str)   # succès, message
     tools_changed = Signal()              # un réglage d'outil a changé hors de la page Outils
     leader_changed = Signal()             # le chef de groupe a changé
+    note_toggle = Signal()                # afficher / masquer le pense-bête
     hotkey_captured = Signal(str, str)  # nom de l'action, raccourci capturé
 
     def __init__(self, config: Config):
@@ -299,6 +300,7 @@ class Controller(QObject):
             hk.get("next", ""): (lambda: self.cycle(1), in_game),
             hk.get("prev", ""): (lambda: self.cycle(-1), in_game),
             hk.get("main", ""): (self.focus_main, in_game),
+            hk.get("note", ""): (self.note_toggle.emit, in_game),
         }
         if tools.get("clicks_enabled"):
             bindings[hk.get("click_all", "")] = (lambda: self.click_all(False), True)

@@ -23,6 +23,11 @@ DEFAULTS: dict = {
     "order": [],            # pseudos, dans l'ordre de cycle
     "main": "",             # personnage principal
     "excluded": [],         # exclus des raccourcis / outils
+    "notes": {              # pense-bête
+        "items": [],        # [{"name": "Peau de Bouftou", "qty": 40, "done": false}, …]
+        "on_top": True,     # fenêtre toujours au-dessus des autres
+        "geometry": None,   # [x, y, largeur, hauteur]
+    },
     "portraits": {},        # pseudo -> clé de portrait ("iop_m", "custom_Pseudo"…)
     "autofocus": {
         "enabled": True,
@@ -34,6 +39,7 @@ DEFAULTS: dict = {
         "next": "Alt+Esc",          # remplace l'Alt+Échap de Windows, qui s'arrêtait aussi sur les applis réduites
         "prev": "Alt+Shift+Esc",
         "main": "",
+        "note": "",                 # afficher / masquer le pense-bête (à définir)
         "click_all": "F1",
         "capture_chat": "F8",
         "invite": "F9",

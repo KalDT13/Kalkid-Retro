@@ -73,6 +73,15 @@ QPushButton#primary:disabled {{ background: #26262A; color: #5A5A62; }}
 QPushButton#heroBtn {{ background: #1A1A1D; color: white; padding: 11px 22px; font-weight: 700; border-radius: 19px; }}
 QPushButton#heroBtn:hover {{ background: #26262A; }}
 QDialog {{ background: {BG}; }}
+NoteWindow {{ background: {BG}; }}
+QFrame#noteRow {{ background: {CARD}; border: 1px solid {CARD_BORDER}; border-radius: 12px; }}
+QPushButton#ghost {{ background: transparent; color: {MUTED}; padding: 0; border-radius: 12px; font-weight: 700; }}
+QPushButton#ghost:hover {{ background: rgba(255,90,90,18%); color: {ERR}; }}
+QCheckBox {{ spacing: 8px; background: transparent; }}
+QCheckBox::indicator {{ width: 18px; height: 18px; border-radius: 6px; background: {FIELD}; border: 1px solid #3A3A41; }}
+QCheckBox::indicator:hover {{ border-color: {ACCENT}; }}
+QCheckBox::indicator:checked {{ background: qlineargradient(x1:0, y1:0, x2:1, y2:1, stop:0 {ACCENT2}, stop:1 {ACCENT});
+                               border-color: {ACCENT}; }}
 QProgressBar {{ background: {FIELD}; border: none; border-radius: 4px; }}
 QProgressBar::chunk {{ border-radius: 4px; background: qlineargradient(x1:0, y1:0, x2:1, y2:0, stop:0 {ACCENT2}, stop:1 {ACCENT}); }}
 QPushButton#portrait {{ padding: 0; border-radius: 16px; background: {FIELD}; border: 1px solid transparent; }}

@@ -18,6 +18,7 @@ from PySide6.QtWidgets import (QApplication, QComboBox, QDialog, QFileDialog, QF
 from . import APP_NAME, __version__, portraits, prereq, updater
 from .config import EVENTS
 from .controller import Controller
+from .notes import NoteWindow
 from .theme import ACCENT2, ERR, MUTED, OK, WARN, make_icon, round_logo
 from .widgets import Avatar, SideNavItem, Switch
 
@@ -663,6 +664,15 @@ class CharactersPage(QWidget):
         right.addWidget(taskbar)
         ctl.taskbar_done.connect(self._taskbar_done)
 
+        notes_card, nl = card()
+        nl.addWidget(label("Pense-bête", "cardTitle"))
+        nl.addWidget(label("Une petite liste de ressources à récupérer (nom + quantité), à cocher. Fenêtre "
+                           "flottante que tu peux placer sur le côté de l'écran.", "muted", wrap=True))
+        note_btn = QPushButton("Ouvrir / fermer le pense-bête")
+        note_btn.clicked.connect(lambda: ctl.note_toggle.emit())
+        nl.addWidget(note_btn)
+        right.addWidget(notes_card)
+
         presets, pl = card()
         pl.addWidget(label("Presets", "cardTitle"))
         pl.addWidget(label("Enregistre l'ordre, le principal, les exclusions et l'autofocus.", "muted", wrap=True))
@@ -957,6 +967,8 @@ class ShortcutsPage(QWidget):
         ]
         right = [
             option_row("Personnage principal", "Passe sur le personnage marqué ★.", HotkeyButton(ctl, "main")),
+            option_row("Afficher / masquer le pense-bête", "Ouvre ou ferme la petite liste de ressources. "
+                       "Aucune touche par défaut.", HotkeyButton(ctl, "note")),
             option_row("Seulement en jeu", "Les raccourcis ne fonctionnent que si une fenêtre Dofus Rétro est "
                                            "au premier plan (recommandé).",
                        make_switch(ctl.cfg.get("hotkeys_only_in_game", default=True),
@@ -1349,6 +1361,8 @@ class MainWindow(QMainWindow):
         ctl.windows_changed.connect(self.update_status)
         ctl.info_changed.connect(self.update_status)
         ctl.capture_finished.connect(self._capture_finished)
+        self.note: NoteWindow | None = None
+        ctl.note_toggle.connect(self._toggle_note)
         self.update_status()
 
         self.tray = QSystemTrayIcon(make_icon(), self)
@@ -1370,6 +1384,16 @@ class MainWindow(QMainWindow):
         self.refresh_timer = QTimer(self, interval=3000, timeout=ctl.refresh_windows)
         self.prereq_timer = QTimer(self, interval=5000, timeout=self.update_prereq)
         QTimer.singleShot(2500, self.update_prereq)   # laisse à l'accès aux notifications le temps de répondre
+
+    def _toggle_note(self):
+        """Affiche ou masque le pense-bête (créé seulement à la première ouverture : aucun coût avant)."""
+        if self.note is None:
+            self.note = NoteWindow(self.ctl.cfg)
+        if self.note.isVisible():
+            self.note.save_geometry()
+            self.note.hide()
+        else:
+            self.note.show_note()
 
     def _capture_finished(self, ok: bool, message: str):
         """Après la capture du chat : on revient sur Kalkid Rétro pour montrer le résultat."""
@@ -1444,6 +1468,9 @@ class MainWindow(QMainWindow):
 
     def quit_app(self):
         self._quitting = True
+        if self.note is not None:
+            self.note.save_geometry()
+            self.note.hide()
         self.tray.hide()
         self.ctl.shutdown()
         QApplication.quit()
