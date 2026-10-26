@@ -31,8 +31,8 @@ DEFAULTS: dict = {
         "events": {},       # pseudo -> liste d'événements actifs
     },
     "hotkeys": {
-        "next": "Tab",
-        "prev": "Shift+Tab",
+        "next": "Alt+Esc",          # remplace l'Alt+Échap de Windows, qui s'arrêtait aussi sur les applis réduites
+        "prev": "Alt+Shift+Esc",
         "main": "",
         "click_all": "F1",
         "capture_chat": "F8",

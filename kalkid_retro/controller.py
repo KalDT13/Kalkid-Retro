@@ -314,8 +314,22 @@ class Controller(QObject):
             bindings[hk.get("click_all", "")] = (lambda: self.click_all(False), True)
         if tools.get("invite_enabled"):
             bindings[hk.get("invite", "")] = (self.invite_group, True)
-        self.hooks.set_bindings({k: v for k, v in bindings.items() if k})
+        # Un raccourci en Alt (ex. Alt+Échap) : on intercale une touche neutre pour que le jeu ne voie pas un
+        # simple appui sur Alt (qui activerait son menu et lui volerait le focus clavier).
+        wrapped = {}
+        for text, (callback, only_game) in bindings.items():
+            if text and "alt" in text.lower():
+                callback = self._alt_safe(callback)
+            wrapped[text] = (callback, only_game)
+        self.hooks.set_bindings({k: v for k, v in wrapped.items() if k})
         self.hooks.refresh_mouse_hook()   # le hook souris n'existe que si le clic molette est activé
+
+    @staticmethod
+    def _alt_safe(callback):
+        def run():
+            winutil.suppress_menu_activation()
+            callback()
+        return run
 
     def capture_hotkey(self, action: str) -> None:
         """Attend la prochaine combinaison pressée et l'enregistre pour `action`."""

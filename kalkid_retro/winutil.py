@@ -514,6 +514,16 @@ def send_enter() -> None:
     _send([_key(VK_RETURN), _key(VK_RETURN, 0, KEYEVENTF_KEYUP)])
 
 
+def suppress_menu_activation() -> None:
+    """Évite qu'un raccourci en Alt soit vu comme un simple appui sur Alt.
+
+    Quand on avale la touche d'un raccourci Alt+X, l'application au premier plan voit « Alt enfoncé puis relâché »
+    et peut activer son menu, ce qui lui vole le focus clavier. On intercale une touche neutre (code 0xE8, non
+    attribuée) : l'application voit alors une combinaison Alt+touche et ne fait rien.
+    """
+    _send([_key(0xE8), _key(0xE8, 0, KEYEVENTF_KEYUP)])
+
+
 def real_click(screen_x: int, screen_y: int) -> None:
     user32.SetCursorPos(screen_x, screen_y)
     _send([
