@@ -144,18 +144,18 @@ class HotkeyButton(QPushButton):
 class ChatCaptureButton(QPushButton):
     """Passe sur la fenêtre du jeu puis mémorise le prochain clic gauche comme position du chat."""
 
-    IDLE = "Définir sur le jeu"
-
-    def __init__(self, ctl: Controller):
-        super().__init__(self.IDLE)
-        self.setObjectName("primary")
+    def __init__(self, ctl: Controller, idle_text: str = "Définir sur le jeu", primary: bool = True):
+        super().__init__(idle_text)
+        self._idle = idle_text
+        if primary:
+            self.setObjectName("primary")
         self.setCursor(Qt.CursorShape.PointingHandCursor)
         self.clicked.connect(ctl.start_chat_capture)
         ctl.chat_capture_state.connect(self._state)
 
     def _state(self, active: bool):
         self.setEnabled(not active)
-        self.setText("Clique sur le chat…  (Échap = annuler)" if active else self.IDLE)
+        self.setText("Clique sur le chat… (Échap)" if active else self._idle)
 
 
 def page_frame(title: str, subtitle: str, body: QWidget, right: QWidget | None = None) -> QWidget:
@@ -402,6 +402,87 @@ class CharacterRow(QFrame):
         self.setCursor(Qt.CursorShape.OpenHandCursor)
 
 
+class InviteCard(QFrame):
+    """Invitation de groupe depuis le panneau de contrôle : chef, position du chat et bouton d'envoi."""
+
+    def __init__(self, ctl: Controller, confirm_macros):
+        super().__init__()
+        self.setObjectName("card")
+        self.ctl = ctl
+        self._confirm = confirm_macros
+        lay = QVBoxLayout(self)
+        lay.setContentsMargins(18, 14, 18, 14)
+        lay.setSpacing(8)
+        lay.addWidget(label("Inviter en groupe", "cardTitle"))
+        lay.addWidget(label("Le chef invite tous les personnages connectés ; chacun valide puis invite le "
+                            "suivant.", "muted", wrap=True))
+        self.leader = QComboBox()
+        self.leader.setMinimumWidth(130)
+        self.leader.activated.connect(lambda _: ctl.set_leader(self.leader.currentText()))
+        lay.addLayout(field_row("Chef", self.leader))
+        self.chat_pos = label("")
+        self.chat_pos.setStyleSheet(f"color: {ACCENT2}; font-weight: 700;")
+        lay.addLayout(field_row("Chat", self.chat_pos, ChatCaptureButton(ctl, "Définir", primary=False)))
+        self.button = QPushButton("Inviter tout le monde")
+        self.button.setObjectName("primary")
+        self.button.setCursor(Qt.CursorShape.PointingHandCursor)
+        self.button.clicked.connect(self._invite)
+        lay.addWidget(self.button)
+        self.status = label("", "muted", wrap=True)
+        lay.addWidget(self.status)
+
+        ctl.windows_changed.connect(self.refresh_leader)
+        ctl.leader_changed.connect(self.refresh_leader)
+        ctl.chat_pos_changed.connect(self.refresh_chat_pos)
+        ctl.invite_state.connect(self._state)
+        ctl.invite_finished.connect(self._finished)
+        self.refresh_leader()
+        self.refresh_chat_pos()
+
+    def refresh_leader(self):
+        cfg = self.ctl.cfg
+        current = cfg.get("tools", "leader", default="") or cfg.get("main", default="")
+        order = self.ctl.order()
+        self.leader.blockSignals(True)
+        self.leader.clear()
+        self.leader.addItems(order)
+        if current in order:
+            self.leader.setCurrentText(current)
+        elif order:
+            self.leader.setCurrentIndex(0)
+        self.leader.blockSignals(False)
+        if order and self.leader.currentText() and self.leader.currentText() != current:
+            cfg.set("tools", "leader", self.leader.currentText())
+
+    def refresh_chat_pos(self):
+        x = self.ctl.cfg.get("tools", "chat_x", default=-1)
+        y = self.ctl.cfg.get("tools", "chat_y", default=-1)
+        self.chat_pos.setText("non définie" if x < 0 else f"X {x} · Y {y}")
+
+    def _invite(self):
+        cfg = self.ctl.cfg
+        if not cfg.get("tools", "invite_enabled", default=False):
+            # première utilisation : même avertissement que dans l'onglet Outils, puis activation
+            if not self._confirm():
+                return
+            cfg.set("tools", "invite_enabled", True)
+            self.ctl.rebind_hotkeys()
+            self.ctl.tools_changed.emit()
+        self.status.setText("")
+        self.ctl.invite_group()
+
+    def _state(self, busy: bool):
+        self.button.setEnabled(not busy)
+        self.button.setText("Invitations en cours…" if busy else "Inviter tout le monde")
+        if busy:
+            self.status.setStyleSheet("")
+            self.status.setText("Ne touche à rien pendant l'envoi.")
+
+    def _finished(self, ok: bool, message: str):
+        self.status.setStyleSheet(f"color: {OK if ok else ERR};")
+        self.status.setText(message)
+
+
 class _RowsInner(QWidget):
     """Conteneur des lignes : reçoit le dépôt et dessine le repère d'insertion."""
 
@@ -502,7 +583,9 @@ class RowsArea(QScrollArea):
 
 
 class CharactersPage(QWidget):
-    def __init__(self, ctl: Controller):
+    """Page d'accueil = panneau de contrôle : ordre d'initiative, invitation de groupe, barre des tâches."""
+
+    def __init__(self, ctl: Controller, confirm_macros):
         super().__init__()
         self.ctl = ctl
         body = QWidget()
@@ -543,6 +626,7 @@ class CharactersPage(QWidget):
         tiles.addWidget(self.tile_online)
         tiles.addWidget(self.tile_total)
         right.addLayout(tiles)
+        right.addWidget(InviteCard(ctl, confirm_macros))
 
         allbox, al = card()
         al.addWidget(label("Autofocus pour tous", "cardTitle"))
@@ -603,14 +687,20 @@ class CharactersPage(QWidget):
         right.addStretch(1)
         side = QWidget()
         side.setObjectName("pageInner")
-        side.setFixedWidth(300)
         side.setLayout(right)
-        right.setContentsMargins(0, 0, 0, 0)
-        row.addWidget(side)
+        right.setContentsMargins(0, 0, 8, 0)
+        side_scroll = QScrollArea()          # le panneau défile si la fenêtre est trop basse pour toutes les cartes
+        side_scroll.setWidgetResizable(True)
+        side_scroll.setFrameShape(QFrame.Shape.NoFrame)
+        side_scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
+        side_scroll.setFixedWidth(322)
+        side_scroll.setWidget(side)
+        row.addWidget(side_scroll)
 
         layout = QVBoxLayout(self)
         layout.setContentsMargins(0, 0, 0, 0)
-        layout.addWidget(page_frame("Personnages", "Glisse une ligne pour changer l'ordre de passage.", body))
+        layout.addWidget(page_frame("Panneau de contrôle", "Glisse les personnages dans l'ordre d'initiative, "
+                                    "invite ton groupe, range tes fenêtres.", body))
 
         ctl.windows_changed.connect(self.rebuild)
         self.rebuild()
@@ -920,7 +1010,7 @@ class ToolsPage(QWidget):
         grp, gl = card()
         self.leader = QComboBox()
         self.leader.setMinimumWidth(170)
-        self.leader.activated.connect(lambda _: cfg.set("tools", "leader", self.leader.currentText()))
+        self.leader.activated.connect(lambda _: ctl.set_leader(self.leader.currentText()))
         gl.addLayout(field_row("Chef de groupe", self.leader))
         self.chat_pos = label("")
         self.chat_pos.setStyleSheet(f"color: {ACCENT2}; font-weight: 700;")
@@ -935,6 +1025,8 @@ class ToolsPage(QWidget):
         self.invite_btn = QPushButton("Inviter tout le monde")
         self.invite_btn.setObjectName("primary")
         self.invite_btn.clicked.connect(ctl.invite_group)
+        ctl.invite_state.connect(lambda busy: self.invite_btn.setEnabled(
+            not busy and bool(ctl.cfg.get("tools", "invite_enabled", default=False))))
         gl.addLayout(field_row("Raccourci « inviter tout le monde »", HotkeyButton(ctl, "invite")))
         gl.addWidget(self.invite_btn)
         right.append(grp)
@@ -952,6 +1044,8 @@ class ToolsPage(QWidget):
                                     body))
 
         ctl.windows_changed.connect(self.refresh_leader)
+        ctl.leader_changed.connect(self.refresh_leader)
+        ctl.tools_changed.connect(self._sync_from_config)
         ctl.chat_pos_changed.connect(self.refresh_chat_pos)
         ctl.info_changed.connect(self.refresh_info)
         self.refresh_leader()
@@ -978,6 +1072,11 @@ class ToolsPage(QWidget):
             return
         self.ctl.cfg.set("tools", "invite_enabled", value)
         self.ctl.rebind_hotkeys()
+        self._sync_enabled()
+
+    def _sync_from_config(self):
+        """L'invitation a été activée depuis le panneau de contrôle : on aligne l'interrupteur d'ici."""
+        self.invite.set_checked_silently(bool(self.ctl.cfg.get("tools", "invite_enabled", default=False)))
         self._sync_enabled()
 
     def _sync_enabled(self):
@@ -1195,7 +1294,7 @@ class MainWindow(QMainWindow):
         self.stack = QStackedWidget()
         self.prereq_page = PrereqPage(ctl)
         pages = [
-            ("people", "Personnages", CharactersPage(ctl)),
+            ("people", "Contrôle", CharactersPage(ctl, self._confirm_macros)),
             ("bell", "Autofocus", AutofocusPage(ctl)),
             ("shield", "Prérequis", self.prereq_page),
             ("keyboard", "Raccourcis", ShortcutsPage(ctl)),

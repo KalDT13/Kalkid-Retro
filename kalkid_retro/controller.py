@@ -24,6 +24,10 @@ class Controller(QObject):
     chat_capture_state = Signal(bool)     # True pendant l'attente du clic sur le chat
     capture_finished = Signal(bool, str)  # succès, message
     taskbar_done = Signal(bool, str)      # rangement de la barre des tâches : succès, message
+    invite_state = Signal(bool)           # True pendant une invitation de groupe
+    invite_finished = Signal(bool, str)   # succès, message
+    tools_changed = Signal()              # un réglage d'outil a changé hors de la page Outils
+    leader_changed = Signal()             # le chef de groupe a changé
     hotkey_captured = Signal(str, str)  # nom de l'action, raccourci capturé
 
     def __init__(self, config: Config):
@@ -385,18 +389,32 @@ class Controller(QObject):
             return
         threading.Thread(target=self._invite_group, daemon=True).start()
 
+    def set_leader(self, pseudo: str) -> None:
+        self.cfg.set("tools", "leader", pseudo)
+        self.leader_changed.emit()
+
+    def _invite_failed(self, message: str) -> None:
+        self.log.emit("error", message)
+        self.invite_finished.emit(False, message)
+
     def _invite_group(self) -> None:
         self._busy_invite = True
+        self.invite_state.emit(True)
         try:
             tools = self.cfg.get("tools", default={})
             self.refresh_windows()
             leader = tools.get("leader") or self.cfg.get("main", default="")
             leader_win = self.windows.get(leader)
             if not leader_win:
-                self.log.emit("error", f"Chef de groupe introuvable : « {leader or 'non défini'} ».")
+                self._invite_failed(f"Chef de groupe introuvable : « {leader or 'non défini'} ». "
+                                    "Choisis un chef parmi les personnages connectés.")
                 return
             if tools.get("chat_x", -1) < 0:
-                self.log.emit("error", "Position du chat non définie (Outils > Groupe, puis touche de capture).")
+                self._invite_failed("Position du chat non définie : clique sur « Définir sur le jeu », "
+                                    "puis sur le champ de saisie du chat.")
+                return
+            if not any(w.pseudo != leader for w in self.active_windows()):
+                self._invite_failed("Aucun autre personnage connecté à inviter.")
                 return
             wait = max(0, tools.get("invite_wait", 200)) / 1000
             pause = max(0, tools.get("invite_pause", 50)) / 1000
@@ -421,11 +439,13 @@ class Controller(QObject):
                 winutil.send_enter()
                 time.sleep(pause)
                 current, sent = win, sent + 1
-            self.last_info = f"{sent} invitations envoyées par {leader}"
+            self.last_info = f"{sent} invitation{'s' if sent > 1 else ''} envoyée{'s' if sent > 1 else ''} par {leader}"
             self.log.emit("ok", self.last_info)
             self.info_changed.emit()
+            self.invite_finished.emit(True, self.last_info)
         finally:
             self._busy_invite = False
+            self.invite_state.emit(False)
 
     # --- presets ----------------------------------------------------------------
     def save_preset(self, name: str) -> None:
