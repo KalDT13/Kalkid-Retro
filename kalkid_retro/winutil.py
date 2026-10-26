@@ -445,6 +445,18 @@ def send_enter() -> None:
     _send([_key(VK_RETURN), _key(VK_RETURN, 0, KEYEVENTF_KEYUP)])
 
 
+user32.GetWindowLongPtrW.argtypes = [wintypes.HWND, ctypes.c_int]
+user32.GetWindowLongPtrW.restype = ctypes.c_ssize_t
+
+
+def release_topmost(hwnd: int) -> bool:
+    """Remet une fenêtre à l'état normal si elle est épinglée « toujours au premier plan » (sans l'activer)."""
+    if not hwnd or not is_valid(hwnd) or not (user32.GetWindowLongPtrW(hwnd, -20) & 0x8):   # GWL_EXSTYLE, WS_EX_TOPMOST
+        return False
+    flags = 0x0002 | 0x0001 | 0x0010      # SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE
+    return bool(user32.SetWindowPos(hwnd, -2, 0, 0, 0, 0, flags))   # HWND_NOTOPMOST
+
+
 def suppress_menu_activation() -> None:
     """Évite qu'un raccourci en Alt soit vu comme un simple appui sur Alt.
 

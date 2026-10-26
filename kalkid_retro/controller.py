@@ -71,7 +71,19 @@ class Controller(QObject):
         self.updater = Updater()
 
     # --- cycle de vie -----------------------------------------------------------
+    def _clear_legacy_pins(self) -> None:
+        """La 0.10.0 proposait d'épingler des fenêtres « toujours au premier plan » : fonction retirée. Si des
+        fenêtres avaient été épinglées, on les remet à l'état normal une fois, puis on oublie la liste."""
+        legacy = self.cfg.get("pinned", default=[])
+        if not legacy:
+            return
+        for win in winutil.list_windows():
+            if win.pseudo in legacy:
+                winutil.release_topmost(win.hwnd)
+        self.cfg.set("pinned", [])
+
     def start(self) -> None:
+        self._clear_legacy_pins()
         self.refresh_windows()
         self.rebind_hotkeys()
         self.hooks.start()
