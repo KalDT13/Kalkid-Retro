@@ -332,15 +332,6 @@ class CharacterRow(QFrame):
             events.addWidget(b)
         lay.addLayout(events)
 
-        pin = QPushButton("📌")
-        pin.setObjectName("chip")
-        pin.setCheckable(True)
-        pin.setFixedSize(CHIP, CHIP)
-        pin.setToolTip("Épingler cette fenêtre « toujours au premier plan » (au-dessus de Discord, du navigateur…)")
-        pin.setChecked(ctl.is_pinned(pseudo))
-        pin.toggled.connect(lambda state, p=pseudo: ctl.set_pinned(p, state))
-        lay.addWidget(pin)
-
         main = QPushButton("★")
         main.setObjectName("chip")
         main.setCheckable(True)
@@ -354,7 +345,7 @@ class CharacterRow(QFrame):
         excl.setObjectName("chip")
         excl.setCheckable(True)
         excl.setFixedSize(EXCLUDE_WIDTH, CHIP)
-        excl.setToolTip("Retirer ce personnage du focus : exclu des raccourcis, de l'autofocus et des outils")
+        excl.setToolTip("Exclure ce personnage des raccourcis et des outils")
         excl.setChecked(ctl.is_excluded(pseudo))
         excl.toggled.connect(lambda state, p=pseudo: ctl.set_excluded(p, state))
         lay.addWidget(excl)
@@ -611,7 +602,7 @@ class CharactersPage(QWidget):
         head.setSpacing(8)
         head.addSpacing(72)          # rang + rond, pour aligner « PERSONNAGE » sur les noms
         head.addWidget(label("PERSONNAGE", "colhead"), 1)
-        for text, width in (("AUTOFOCUS", EVENTS_WIDTH), ("PIN", CHIP), ("PRINC.", CHIP), ("EXCL.", EXCLUDE_WIDTH)):
+        for text, width in (("AUTOFOCUS", EVENTS_WIDTH), ("PRINC.", CHIP), ("EXCL.", EXCLUDE_WIDTH)):
             col = label(text, "colhead")
             col.setFixedWidth(width)
             col.setAlignment(Qt.AlignmentFlag.AlignCenter)
@@ -963,15 +954,9 @@ class ShortcutsPage(QWidget):
         left = [
             option_row("Fenêtre suivante", "Passe au personnage suivant dans l'ordre.", HotkeyButton(ctl, "next")),
             option_row("Fenêtre précédente", "Revient au personnage précédent.", HotkeyButton(ctl, "prev")),
-            option_row("Épingler / désépingler la fenêtre active",
-                       "Garde la fenêtre Dofus active « toujours au premier plan » (ou l'enlève). "
-                       "Aucune touche par défaut.", HotkeyButton(ctl, "pin")),
         ]
         right = [
             option_row("Personnage principal", "Passe sur le personnage marqué ★.", HotkeyButton(ctl, "main")),
-            option_row("Inclure / exclure la fenêtre active du focus",
-                       "Retire la fenêtre Dofus active des raccourcis, de l'autofocus et des outils, ou "
-                       "l'y remet. Aucune touche par défaut.", HotkeyButton(ctl, "toggle_exclude")),
             option_row("Seulement en jeu", "Les raccourcis ne fonctionnent que si une fenêtre Dofus Rétro est "
                                            "au premier plan (recommandé).",
                        make_switch(ctl.cfg.get("hotkeys_only_in_game", default=True),
@@ -1275,8 +1260,8 @@ class MainWindow(QMainWindow):
         self._first_check = True
         self.setWindowTitle(APP_NAME)
         self.setWindowIcon(make_icon())
-        self.resize(1260, 760)
-        self.setMinimumSize(1180, 640)
+        self.resize(1200, 760)
+        self.setMinimumSize(1100, 640)
 
         root = QWidget()
         root.setObjectName("root")
@@ -1364,7 +1349,6 @@ class MainWindow(QMainWindow):
         ctl.windows_changed.connect(self.update_status)
         ctl.info_changed.connect(self.update_status)
         ctl.capture_finished.connect(self._capture_finished)
-        ctl.notice.connect(self._notice)
         self.update_status()
 
         self.tray = QSystemTrayIcon(make_icon(), self)
@@ -1386,10 +1370,6 @@ class MainWindow(QMainWindow):
         self.refresh_timer = QTimer(self, interval=3000, timeout=ctl.refresh_windows)
         self.prereq_timer = QTimer(self, interval=5000, timeout=self.update_prereq)
         QTimer.singleShot(2500, self.update_prereq)   # laisse à l'accès aux notifications le temps de répondre
-
-    def _notice(self, text: str):
-        """Court message (bulle de la zone de notification) pour confirmer un raccourci."""
-        self.tray.showMessage(APP_NAME, text, QSystemTrayIcon.MessageIcon.NoIcon, 1800)
 
     def _capture_finished(self, ok: bool, message: str):
         """Après la capture du chat : on revient sur Kalkid Rétro pour montrer le résultat."""

@@ -38,7 +38,6 @@ class Controller(QObject):
     invite_finished = Signal(bool, str)   # succès, message
     tools_changed = Signal()              # un réglage d'outil a changé hors de la page Outils
     leader_changed = Signal()             # le chef de groupe a changé
-    notice = Signal(str)                  # court message à afficher (zone de notification)
     hotkey_captured = Signal(str, str)  # nom de l'action, raccourci capturé
 
     def __init__(self, config: Config):
@@ -125,7 +124,6 @@ class Controller(QObject):
 
     def shutdown(self) -> None:
         self._stop.set()
-        self.release_pins()
         self.hooks.stop()
         self.notifs.stop()
 
@@ -143,7 +141,6 @@ class Controller(QObject):
         if added:
             self.cfg.set("order", order)
         if changed or added:
-            self.apply_pins()
             self.windows_changed.emit()
 
     def order(self) -> list[str]:
@@ -161,53 +158,6 @@ class Controller(QObject):
         if value:
             ex.append(pseudo)
         self.cfg.set("excluded", ex)
-
-    # --- focus : inclure / exclure, épingler -------------------------------------
-    def toggle_exclude_active(self) -> None:
-        """Raccourci : inclut ou exclut du focus la fenêtre Dofus active."""
-        pseudo = winutil.foreground_pseudo()
-        if not pseudo:
-            return
-        excluded = not self.is_excluded(pseudo)
-        self.set_excluded(pseudo, excluded)
-        self.windows_changed.emit()
-        self.notice.emit(f"{pseudo} : " + ("retiré du focus (raccourcis, autofocus, outils)" if excluded
-                                           else "remis dans le focus"))
-
-    def is_pinned(self, pseudo: str) -> bool:
-        return pseudo in self.cfg.get("pinned", default=[])
-
-    def set_pinned(self, pseudo: str, value: bool) -> None:
-        pinned = [p for p in self.cfg.get("pinned", default=[]) if p != pseudo]
-        if value:
-            pinned.append(pseudo)
-        self.cfg.set("pinned", pinned)
-        win = self.windows.get(pseudo)
-        if win:
-            winutil.set_topmost(win.hwnd, value)
-
-    def toggle_pin_active(self) -> None:
-        """Raccourci : épingle (toujours au premier plan) ou désépingle la fenêtre Dofus active."""
-        pseudo = winutil.foreground_pseudo()
-        if not pseudo:
-            return
-        pinned = not self.is_pinned(pseudo)
-        self.set_pinned(pseudo, pinned)
-        self.windows_changed.emit()
-        self.notice.emit(f"{pseudo} : " + ("épinglée au premier plan" if pinned else "désépinglée"))
-
-    def apply_pins(self) -> None:
-        """Remet l'épinglage voulu sur les fenêtres ouvertes (au lancement, ou quand une fenêtre apparaît)."""
-        for pseudo, win in list(self.windows.items()):
-            want = self.is_pinned(pseudo)
-            if winutil.is_valid(win.hwnd) and winutil.is_topmost(win.hwnd) != want:
-                winutil.set_topmost(win.hwnd, want)
-
-    def release_pins(self) -> None:
-        """À la fermeture de l'appli : rend leur état normal aux fenêtres qu'elle avait épinglées."""
-        for pseudo, win in list(self.windows.items()):
-            if self.is_pinned(pseudo) and winutil.is_valid(win.hwnd) and winutil.is_topmost(win.hwnd):
-                winutil.set_topmost(win.hwnd, False)
 
     def active_windows(self) -> list[winutil.GameWindow]:
         """Fenêtres ouvertes, dans l'ordre, hors exclusions."""
@@ -337,8 +287,6 @@ class Controller(QObject):
             hk.get("next", ""): (lambda: self.cycle(1), in_game),
             hk.get("prev", ""): (lambda: self.cycle(-1), in_game),
             hk.get("main", ""): (self.focus_main, in_game),
-            hk.get("pin", ""): (self.toggle_pin_active, True),
-            hk.get("toggle_exclude", ""): (self.toggle_exclude_active, True),
         }
         if tools.get("clicks_enabled"):
             bindings[hk.get("click_all", "")] = (lambda: self.click_all(False), True)
@@ -537,7 +485,6 @@ class Controller(QObject):
             "order": self.order(),
             "main": self.cfg.get("main", default=""),
             "excluded": list(self.cfg.get("excluded", default=[])),
-            "pinned": list(self.cfg.get("pinned", default=[])),
             "events": dict(self.cfg.get("autofocus", "events", default={})),
         }
         self.cfg.set("presets", presets)
@@ -549,10 +496,8 @@ class Controller(QObject):
         self.cfg.set("order", list(preset.get("order", [])))
         self.cfg.set("main", preset.get("main", ""))
         self.cfg.set("excluded", list(preset.get("excluded", [])))
-        self.cfg.set("pinned", list(preset.get("pinned", [])))
         self.cfg.set("autofocus", "events", dict(preset.get("events", {})))
         self.refresh_windows()
-        self.apply_pins()
         self.windows_changed.emit()
 
     def delete_preset(self, name: str) -> None:

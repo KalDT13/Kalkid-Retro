@@ -23,7 +23,6 @@ DEFAULTS: dict = {
     "order": [],            # pseudos, dans l'ordre de cycle
     "main": "",             # personnage principal
     "excluded": [],         # exclus des raccourcis / outils
-    "pinned": [],           # fenêtres épinglées « toujours au premier plan »
     "portraits": {},        # pseudo -> clé de portrait ("iop_m", "custom_Pseudo"…)
     "autofocus": {
         "enabled": True,
@@ -35,8 +34,6 @@ DEFAULTS: dict = {
         "next": "Alt+Esc",          # remplace l'Alt+Échap de Windows, qui s'arrêtait aussi sur les applis réduites
         "prev": "Alt+Shift+Esc",
         "main": "",
-        "pin": "",                  # épingler / désépingler la fenêtre active (à définir : par ex. F8)
-        "toggle_exclude": "",       # inclure / exclure la fenêtre active du focus
         "click_all": "F1",
         "capture_chat": "F8",
         "invite": "F9",
