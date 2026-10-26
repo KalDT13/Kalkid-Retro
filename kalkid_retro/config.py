@@ -54,6 +54,7 @@ DEFAULTS: dict = {
     },
     "presets": {},          # nom -> {"order": [...], "main": "", "excluded": [], "events": {...}}
     "settings": {
+        "focus_assist": True,       # clic invisible en zone noire : le clavier marche dès le retour sur le jeu
         "close_to_tray": True,
         "start_hidden": False,
         "warning_ack": False,

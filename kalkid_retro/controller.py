@@ -47,6 +47,8 @@ class Controller(QObject):
         self._fg_was_game = False
         self._last_game_hwnd = 0
         self._guard_times: list[float] = []
+        self._assist_times: dict[int, float] = {}
+        self.assist_count = 0
         self.last_focus_detail = ""
 
         self.hooks = HookManager()
@@ -84,8 +86,38 @@ class Controller(QObject):
         self._fg_was_game = is_game
         if is_game:
             self._last_game_hwnd = hwnd
+            if self.cfg.get("settings", "focus_assist", default=True):
+                threading.Timer(self.ASSIST_DELAY, self._focus_assist, args=(hwnd,)).start()
         elif left_game and self.cfg.get("autofocus", "keep_focus", default=False):
             self._maybe_keep_focus(game_hwnd, hwnd)
+
+    ASSIST_DELAY = 0.09        # laisse l'activation de la fenêtre se terminer avant d'agir
+
+    def _focus_assist(self, hwnd: int) -> None:
+        """Donne au jeu le focus clavier sans que l'utilisateur ait à cliquer.
+
+        Dans le navigateur intégré du jeu, c'est un appui de souris qui donne le focus à la page. On envoie donc
+        un clic dans une zone entièrement noire de la fenêtre (jamais sur le jeu), sans bouger la souris réelle.
+        """
+        try:
+            now = time.monotonic()
+            if (winutil.foreground_hwnd() != hwnd or not winutil.is_valid(hwnd)
+                    or winutil.left_button_down()          # l'utilisateur vient de cliquer lui-même : c'est fait
+                    or now - self._assist_times.get(hwnd, 0) < 0.4):
+                return
+            point = winutil.find_neutral_point(hwnd)
+            self._assist_times[hwnd] = now
+            pseudo = winutil.pseudo_from_title(winutil.window_title(hwnd)) or "le jeu"
+            if point is None:
+                if self.cfg.get("autofocus", "debug", default=False):
+                    self.log.emit("error", f"Focus clavier sur {pseudo} : aucune zone noire sûre trouvée, rien envoyé.")
+                return
+            winutil.post_click(hwnd, point[0], point[1])
+            self.assist_count += 1
+            if self.cfg.get("autofocus", "debug", default=False):
+                self.log.emit("notif", f"Focus clavier donné à {pseudo} (clic neutre en {point[0]}, {point[1]})")
+        except Exception:
+            pass
 
     def _maybe_keep_focus(self, game_hwnd: int, new_hwnd: int) -> None:
         """Rend le focus au jeu si une autre application l'a pris SANS action de l'utilisateur.

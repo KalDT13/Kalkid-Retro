@@ -800,6 +800,13 @@ class AutofocusPage(QWidget):
                            make_switch(ctl.cfg.get("autofocus", "debug", default=False),
                                        lambda v: ctl.cfg.set("autofocus", "debug", v)))
 
+        assist = option_row("Clavier actif dès le retour sur le jeu",
+                            "Quand une fenêtre Dofus repasse au premier plan (Alt+Tab, autofocus, raccourci), "
+                            "l'appli lui donne le focus clavier par un clic invisible dans une zone noire de la "
+                            "fenêtre (jamais sur le jeu). Tu n'as plus à cliquer pour que les touches marchent.",
+                            make_switch(ctl.cfg.get("settings", "focus_assist", default=True),
+                                        lambda v: ctl.cfg.set("settings", "focus_assist", v)))
+
         keep = option_row("Garder le focus sur le jeu",
                           "Si une autre application (Discord, un navigateur…) prend le focus sans que tu aies "
                           "touché le clavier ou la souris, Dofus le reprend. Si c'est toi qui changes de fenêtre "
@@ -829,6 +836,7 @@ class AutofocusPage(QWidget):
         left.setSpacing(12)
         left.addWidget(tiles_w)
         left.addWidget(status_frame)
+        left.addWidget(assist)
         left.addWidget(keep)
         left.addWidget(debug)
         left.addStretch(1)
