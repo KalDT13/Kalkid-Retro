@@ -445,6 +445,30 @@ def send_enter() -> None:
     _send([_key(VK_RETURN), _key(VK_RETURN, 0, KEYEVENTF_KEYUP)])
 
 
+user32.SetWindowPos.argtypes = [wintypes.HWND, wintypes.HWND, ctypes.c_int, ctypes.c_int, ctypes.c_int,
+                                ctypes.c_int, wintypes.UINT]
+user32.GetWindowLongPtrW.argtypes = [wintypes.HWND, ctypes.c_int]
+user32.GetWindowLongPtrW.restype = ctypes.c_ssize_t
+GWL_EXSTYLE, WS_EX_TOPMOST = -20, 0x8
+HWND_TOPMOST, HWND_NOTOPMOST = -1, -2
+
+
+def is_topmost(hwnd: int) -> bool:
+    """Vrai si la fenêtre est épinglée « toujours au premier plan » (lecture directe, sans message)."""
+    return bool(user32.GetWindowLongPtrW(hwnd, GWL_EXSTYLE) & WS_EX_TOPMOST)
+
+
+def set_topmost(hwnd: int, on: bool) -> bool:
+    """Épingle ou désépingle une fenêtre au-dessus des autres applications, sans la déplacer ni l'activer.
+
+    SetWindowPos vers la fenêtre d'une autre application est mis en file chez elle : l'appel ne peut pas bloquer.
+    """
+    if not hwnd or not is_valid(hwnd):
+        return False
+    flags = 0x0002 | 0x0001 | 0x0010      # SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE
+    return bool(user32.SetWindowPos(hwnd, HWND_TOPMOST if on else HWND_NOTOPMOST, 0, 0, 0, 0, flags))
+
+
 def suppress_menu_activation() -> None:
     """Évite qu'un raccourci en Alt soit vu comme un simple appui sur Alt.
 
