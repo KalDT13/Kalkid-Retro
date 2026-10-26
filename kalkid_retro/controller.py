@@ -16,6 +16,16 @@ from .notifs import GameNotification, NotificationWatcher
 from .updater import Updater
 
 
+def _wait_foreground(hwnd: int, timeout: float = 0.35) -> bool:
+    """Attend (brièvement) que `hwnd` soit au premier plan : l'activation des fenêtres du jeu n'est pas instantanée."""
+    end = time.monotonic() + timeout
+    while time.monotonic() < end:
+        if winutil.foreground_hwnd() == hwnd:
+            return True
+        time.sleep(0.02)
+    return winutil.foreground_hwnd() == hwnd
+
+
 class Controller(QObject):
     log = Signal(str, str)            # niveau ("info" | "ok" | "error" | "notif"), message
     windows_changed = Signal()
@@ -47,8 +57,6 @@ class Controller(QObject):
         self._fg_was_game = False
         self._last_game_hwnd = 0
         self._guard_times: list[float] = []
-        self._assist_times: dict[int, float] = {}
-        self.assist_count = 0
         self.last_focus_detail = ""
 
         self.hooks = HookManager()
@@ -86,38 +94,8 @@ class Controller(QObject):
         self._fg_was_game = is_game
         if is_game:
             self._last_game_hwnd = hwnd
-            if self.cfg.get("settings", "focus_assist", default=True):
-                threading.Timer(self.ASSIST_DELAY, self._focus_assist, args=(hwnd,)).start()
         elif left_game and self.cfg.get("autofocus", "keep_focus", default=False):
             self._maybe_keep_focus(game_hwnd, hwnd)
-
-    ASSIST_DELAY = 0.09        # laisse l'activation de la fenêtre se terminer avant d'agir
-
-    def _focus_assist(self, hwnd: int) -> None:
-        """Donne au jeu le focus clavier sans que l'utilisateur ait à cliquer.
-
-        Dans le navigateur intégré du jeu, c'est un appui de souris qui donne le focus à la page. On envoie donc
-        un clic dans une zone entièrement noire de la fenêtre (jamais sur le jeu), sans bouger la souris réelle.
-        """
-        try:
-            now = time.monotonic()
-            if (winutil.foreground_hwnd() != hwnd or not winutil.is_valid(hwnd)
-                    or winutil.left_button_down()          # l'utilisateur vient de cliquer lui-même : c'est fait
-                    or now - self._assist_times.get(hwnd, 0) < 0.4):
-                return
-            point = winutil.find_neutral_point(hwnd)
-            self._assist_times[hwnd] = now
-            pseudo = winutil.pseudo_from_title(winutil.window_title(hwnd)) or "le jeu"
-            if point is None:
-                if self.cfg.get("autofocus", "debug", default=False):
-                    self.log.emit("error", f"Focus clavier sur {pseudo} : aucune zone noire sûre trouvée, rien envoyé.")
-                return
-            winutil.post_click(hwnd, point[0], point[1])
-            self.assist_count += 1
-            if self.cfg.get("autofocus", "debug", default=False):
-                self.log.emit("notif", f"Focus clavier donné à {pseudo} (clic neutre en {point[0]}, {point[1]})")
-        except Exception:
-            pass
 
     def _maybe_keep_focus(self, game_hwnd: int, new_hwnd: int) -> None:
         """Rend le focus au jeu si une autre application l'a pris SANS action de l'utilisateur.
@@ -364,6 +342,9 @@ class Controller(QObject):
                 wins = self.active_windows()
             lo = min(self.cfg.get("tools", "delay_min", default=90), self.cfg.get("tools", "delay_max", default=130))
             hi = max(self.cfg.get("tools", "delay_min", default=90), self.cfg.get("tools", "delay_max", default=130))
+            # Dofus active sa fenêtre dès qu'elle reçoit un clic : chaque clic fait passer la fenêtre visée au
+            # premier plan. On clique donc la fenêtre d'origine EN DERNIER, pour que le focus te revienne.
+            wins = [w for w in wins if w.hwnd != origin] + [w for w in wins if w.hwnd == origin]
             t0 = time.monotonic()
             last, gaps = None, []
             for i, win in enumerate(wins):
@@ -374,6 +355,10 @@ class Controller(QObject):
                 last = now
                 if random_delay and i < len(wins) - 1:
                     time.sleep(random.randint(lo, hi) / 1000)
+            # Sans fenêtre d'origine dans la liste (exclue, par ex.), ou si une autre a gardé le premier plan :
+            # on te rend la main. Sinon l'autofocus ne te prévient plus (le jeu ne notifie pas la fenêtre active).
+            if winutil.is_valid(origin) and not _wait_foreground(origin):
+                winutil.focus_ex(origin)
             self.last_gaps = gaps
             self.last_info = f"{len(wins)} fenêtres en {time.monotonic() - t0:.2f} s"
             self.info_changed.emit()
