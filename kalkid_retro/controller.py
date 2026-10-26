@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import os
 import random
 import threading
 import time
@@ -39,6 +40,10 @@ class Controller(QObject):
 
         # Mis à jour par un thread : les hooks ne doivent jamais interroger Windows (trop lent)
         self.game_fg = False
+        self._fg_was_game = False
+        self._last_game_hwnd = 0
+        self._guard_times: list[float] = []
+        self.last_focus_detail = ""
 
         self.hooks = HookManager()
         self.hooks.set_condition(lambda: self.game_fg)
@@ -62,9 +67,46 @@ class Controller(QObject):
             threading.Timer(4.0, self.updater.check).start()   # une seule vérification, en arrière-plan
         threading.Thread(target=self._anti_flash_loop, daemon=True, name="kalkid-flash").start()
 
+    GUARD_IDLE_MS = 700        # sans action de l'utilisateur depuis au moins 0,7 s : le focus a été « volé »
+    GUARD_DELAY = 0.15         # laisse l'autre fenêtre finir de s'afficher avant de reprendre le focus
+    GUARD_MAX = 3              # au plus 3 reprises de focus par fenêtre de 10 s (évite une bagarre de focus)
+
     def _on_foreground(self, hwnd: int) -> None:
         """Appelé par Windows à chaque changement de fenêtre active (aucun polling)."""
-        self.game_fg = bool(hwnd) and winutil.pseudo_from_title(winutil.window_title(hwnd)) is not None
+        is_game = bool(hwnd) and winutil.pseudo_from_title(winutil.window_title(hwnd)) is not None
+        left_game = self._fg_was_game and not is_game
+        game_hwnd = self._last_game_hwnd
+        self.game_fg = is_game
+        self._fg_was_game = is_game
+        if is_game:
+            self._last_game_hwnd = hwnd
+        elif left_game and self.cfg.get("autofocus", "keep_focus", default=False):
+            self._maybe_keep_focus(game_hwnd, hwnd)
+
+    def _maybe_keep_focus(self, game_hwnd: int, new_hwnd: int) -> None:
+        """Rend le focus au jeu si une autre application l'a pris SANS action de l'utilisateur.
+
+        Si l'utilisateur vient de taper ou de cliquer (Alt+Tab, clic sur Discord…), on ne touche à rien.
+        """
+        if not game_hwnd or not winutil.is_valid(game_hwnd) or winutil.idle_ms() < self.GUARD_IDLE_MS:
+            return
+        if winutil.pid_of(new_hwnd) == os.getpid():            # notre propre fenêtre
+            return
+        now = time.monotonic()
+        self._guard_times = [t for t in self._guard_times if now - t < 10]
+        if len(self._guard_times) >= self.GUARD_MAX:
+            return
+        self._guard_times.append(now)
+
+        def restore():
+            if winutil.idle_ms() < self.GUARD_IDLE_MS or winutil.is_game_foreground():
+                return          # l'utilisateur a repris la main entre-temps
+            ok, detail = winutil.focus_ex(game_hwnd)
+            pseudo = winutil.pseudo_from_title(winutil.window_title(game_hwnd)) or "le jeu"
+            self.log.emit("ok" if ok else "error",
+                          f"Focus rendu à {pseudo} (une autre fenêtre l'avait pris sans action de ta part) · {detail}")
+
+        threading.Timer(self.GUARD_DELAY, restore).start()
 
     def shutdown(self) -> None:
         self._stop.set()
@@ -115,7 +157,10 @@ class Controller(QObject):
         current = winutil.foreground_pseudo()
         pseudos = [w.pseudo for w in wins]
         idx = pseudos.index(current) if current in pseudos else (-1 if step > 0 else 0)
-        winutil.focus(wins[(idx + step) % len(wins)].hwnd)
+        target = wins[(idx + step) % len(wins)]
+        ok, detail = winutil.focus_ex(target.hwnd)
+        if not ok or "non confirmé" in detail:
+            self.log.emit("error", f"Passage sur {target.pseudo} : {detail}")
 
     def focus_pseudo(self, pseudo: str) -> bool:
         # Chemin rapide : fenêtre déjà connue et toujours valide (aucune énumération des fenêtres).
@@ -123,7 +168,11 @@ class Controller(QObject):
         if not (win and winutil.is_valid(win.hwnd)):
             self.refresh_windows()
             win = self.windows.get(pseudo)
-        return bool(win and winutil.focus(win.hwnd))
+        if not win:
+            self.last_focus_detail = "fenêtre introuvable"
+            return False
+        ok, self.last_focus_detail = winutil.focus_ex(win.hwnd)
+        return ok
 
     def focus_main(self) -> None:
         main = self.cfg.get("main", default="")
@@ -205,7 +254,8 @@ class Controller(QObject):
             return
         if self.focus_pseudo(notif.pseudo):
             self.focus_count += 1
-            self.log.emit("ok", f"Focus sur {notif.pseudo} ({EVENTS.get(notif.event, notif.event)})")
+            self.log.emit("ok" if "non confirmé" not in self.last_focus_detail else "error",
+                          f"Focus sur {notif.pseudo} ({EVENTS.get(notif.event, notif.event)}) · {self.last_focus_detail}")
         else:
             self.log.emit("error", f"Fenêtre « {notif.pseudo} » introuvable.")
         self.info_changed.emit()

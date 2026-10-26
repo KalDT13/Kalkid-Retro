@@ -27,6 +27,7 @@ DEFAULTS: dict = {
     "autofocus": {
         "enabled": True,
         "debug": False,
+        "keep_focus": False,    # rend le focus au jeu quand une autre appli le prend sans action de l'utilisateur
         "events": {},       # pseudo -> liste d'événements actifs
     },
     "hotkeys": {

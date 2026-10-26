@@ -151,21 +151,95 @@ def is_valid(hwnd: int) -> bool:
     return bool(user32.IsWindow(hwnd))
 
 
-def focus(hwnd: int) -> bool:
-    """Met la fenêtre au premier plan (contourne le blocage du focus de Windows)."""
-    if not hwnd or not is_valid(hwnd):
+class _GUITHREADINFO(ctypes.Structure):
+    _fields_ = [("cbSize", wintypes.DWORD), ("flags", wintypes.DWORD), ("hwndActive", wintypes.HWND),
+                ("hwndFocus", wintypes.HWND), ("hwndCapture", wintypes.HWND), ("hwndMenuOwner", wintypes.HWND),
+                ("hwndMoveSize", wintypes.HWND), ("hwndCaret", wintypes.HWND), ("rcCaret", wintypes.RECT)]
+
+
+user32.GetGUIThreadInfo.argtypes = [wintypes.DWORD, ctypes.POINTER(_GUITHREADINFO)]
+user32.IsChild.argtypes = [wintypes.HWND, wintypes.HWND]
+user32.SwitchToThisWindow.argtypes = [wintypes.HWND, wintypes.BOOL]
+WM_ACTIVATE, WM_SETFOCUS = 0x0006, 0x0007
+
+
+def has_keyboard_focus(hwnd: int) -> bool:
+    """Vrai si la fenêtre est au premier plan ET qu'un de ses éléments (la zone de jeu) a le focus clavier.
+
+    GetGUIThreadInfo lit l'état de saisie d'un autre processus sans lui envoyer de message ni relier les files
+    de saisie : on peut donc l'appeler sans risque de blocage.
+    """
+    if not hwnd or foreground_hwnd() != hwnd:
         return False
+    info = _GUITHREADINFO()
+    info.cbSize = ctypes.sizeof(_GUITHREADINFO)
+    tid = user32.GetWindowThreadProcessId(hwnd, None)
+    if not tid or not user32.GetGUIThreadInfo(tid, ctypes.byref(info)):
+        return False
+    focus_hwnd = info.hwndFocus
+    return bool(focus_hwnd) and (focus_hwnd == hwnd or bool(user32.IsChild(hwnd, focus_hwnd)))
+
+
+def _wait(predicate, timeout: float, step: float = 0.01) -> bool:
+    end = time.monotonic() + timeout
+    while True:
+        if predicate():
+            return True
+        if time.monotonic() >= end:
+            return False
+        time.sleep(step)
+
+
+def focus_ex(hwnd: int) -> tuple[bool, str]:
+    """Met la fenêtre au premier plan ET lui donne le focus clavier, en escaladant si besoin.
+
+    Retourne (au premier plan, détail). Aucune méthode n'utilise AttachThreadInput : relier la file de
+    saisie à celle d'une autre application peut bloquer la souris de tout le système.
+    """
+    if not hwnd or not is_valid(hwnd):
+        return False, "fenêtre introuvable"
     if user32.IsIconic(hwnd):
         user32.ShowWindow(hwnd, SW_RESTORE)
-    if user32.GetForegroundWindow() == hwnd:
-        return True
-    # Une pression sur Alt (injectée) autorise SetForegroundWindow. On évite volontairement
-    # AttachThreadInput : relier la file de saisie à celle d'une autre application peut bloquer la souris
-    # de tout le système si cette application ne répond plus.
-    user32.keybd_event(VK_MENU, 0, 0, 0)
-    user32.keybd_event(VK_MENU, 0, KEYEVENTF_KEYUP, 0)
-    ok = bool(user32.SetForegroundWindow(hwnd))
-    return ok or foreground_hwnd() == hwnd
+    if has_keyboard_focus(hwnd):
+        return True, "déjà actif"
+    # Niveau 1 : une pression sur Alt (injectée) autorise SetForegroundWindow
+    if foreground_hwnd() != hwnd:
+        user32.keybd_event(VK_MENU, 0, 0, 0)
+        user32.keybd_event(VK_MENU, 0, KEYEVENTF_KEYUP, 0)
+        user32.SetForegroundWindow(hwnd)
+        if not _wait(lambda: foreground_hwnd() == hwnd, 0.15):
+            # Niveau 2 : même mécanisme que le changement de fenêtre par Alt+Tab
+            user32.SwitchToThisWindow(hwnd, True)
+            _wait(lambda: foreground_hwnd() == hwnd, 0.2)
+    if foreground_hwnd() != hwnd:
+        return False, "Windows a refusé de passer la fenêtre au premier plan"
+    if _wait(lambda: has_keyboard_focus(hwnd), 0.12):
+        return True, "focus clavier confirmé"
+    # Niveau 3 : la fenêtre est devant mais le jeu n'a pas le focus clavier (il faudrait cliquer dedans) :
+    # on envoie à la fenêtre et à sa zone de jeu les messages d'activation que Windows enverrait.
+    render = render_widget(hwnd)
+    user32.PostMessageW(hwnd, WM_ACTIVATE, 1, 0)
+    user32.PostMessageW(hwnd, WM_SETFOCUS, 0, 0)
+    if render != hwnd:
+        user32.PostMessageW(render, WM_SETFOCUS, 0, 0)
+    if _wait(lambda: has_keyboard_focus(hwnd), 0.25):
+        return True, "focus clavier confirmé (activation forcée)"
+    return True, "fenêtre au premier plan, focus clavier non confirmé"
+
+
+def focus(hwnd: int) -> bool:
+    """Met la fenêtre au premier plan avec le focus clavier (voir focus_ex)."""
+    return focus_ex(hwnd)[0]
+
+
+def idle_ms() -> int:
+    """Temps écoulé depuis la dernière action de l'utilisateur (clavier ou souris)."""
+    class LASTINPUTINFO(ctypes.Structure):
+        _fields_ = [("cbSize", wintypes.UINT), ("dwTime", wintypes.DWORD)]
+    info = LASTINPUTINFO(ctypes.sizeof(LASTINPUTINFO), 0)
+    if not user32.GetLastInputInfo(ctypes.byref(info)):
+        return 0
+    return (kernel32.GetTickCount() - info.dwTime) & 0xFFFFFFFF
 
 
 def wait_foreground(hwnd: int, timeout: float = 2.0) -> bool:

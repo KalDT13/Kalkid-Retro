@@ -710,6 +710,13 @@ class AutofocusPage(QWidget):
                            make_switch(ctl.cfg.get("autofocus", "debug", default=False),
                                        lambda v: ctl.cfg.set("autofocus", "debug", v)))
 
+        keep = option_row("Garder le focus sur le jeu",
+                          "Si une autre application (Discord, un navigateur…) prend le focus sans que tu aies "
+                          "touché le clavier ou la souris, Dofus le reprend. Si c'est toi qui changes de fenêtre "
+                          "(Alt+Tab, clic), rien n'est modifié.",
+                          make_switch(ctl.cfg.get("autofocus", "keep_focus", default=False),
+                                      lambda v: ctl.cfg.set("autofocus", "keep_focus", v)))
+
         log_frame, ll = card()
         head = QHBoxLayout()
         head.addWidget(label("Journal", "cardTitle"))
@@ -732,6 +739,7 @@ class AutofocusPage(QWidget):
         left.setSpacing(12)
         left.addWidget(tiles_w)
         left.addWidget(status_frame)
+        left.addWidget(keep)
         left.addWidget(debug)
         left.addStretch(1)
         row.addLayout(left, 1)
@@ -752,8 +760,12 @@ class AutofocusPage(QWidget):
 
     def update_counters(self):
         ok = self.ctl.notifs.access_ok
-        self.status.setText("Accès aux notifications : " + ("accordé ✓" if ok else "non accordé ✗"))
-        self.status.setStyleSheet(f"color: {OK if ok else ERR};")
+        if not self.ctl.cfg.get("autofocus", "enabled", default=True):
+            self.status.setText("Autofocus désactivé : les notifications ne sont pas lues")
+            self.status.setStyleSheet(f"color: {MUTED};")
+        else:
+            self.status.setText("Accès aux notifications : " + ("accordé ✓" if ok else "non accordé ✗"))
+            self.status.setStyleSheet(f"color: {OK if ok else ERR};")
         self.tile_read.set_all(str(self.ctl.notifs.read_count))
         self.tile_focus.set_all(str(self.ctl.focus_count))
 
