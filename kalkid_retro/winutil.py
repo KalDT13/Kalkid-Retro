@@ -204,8 +204,8 @@ def focus_ex(hwnd: int) -> tuple[bool, str]:
         return True, "déjà actif"
     # Niveau 1 : une pression sur Alt (injectée) autorise SetForegroundWindow
     if foreground_hwnd() != hwnd:
-        user32.keybd_event(VK_MENU, 0, 0, 0)
-        user32.keybd_event(VK_MENU, 0, KEYEVENTF_KEYUP, 0)
+        user32.keybd_event(VK_MENU, 0, 0, SELF_MARK)
+        user32.keybd_event(VK_MENU, 0, KEYEVENTF_KEYUP, SELF_MARK)
         user32.SetForegroundWindow(hwnd)
         if not _wait(lambda: foreground_hwnd() == hwnd, 0.15):
             # Niveau 2 : même mécanisme que le changement de fenêtre par Alt+Tab
@@ -396,6 +396,7 @@ KEYEVENTF_KEYUP, KEYEVENTF_UNICODE = 0x0002, 0x0004
 MOUSEEVENTF_LEFTDOWN, MOUSEEVENTF_LEFTUP = 0x0002, 0x0004
 VK_RETURN = 0x0D
 VK_MENU = 0x12   # touche Alt
+SELF_MARK = 0x4B4C4B44   # dwExtraInfo des touches envoyées par Kalkid (les hooks les reconnaissent)
 
 
 class KEYBDINPUT(ctypes.Structure):
@@ -430,7 +431,7 @@ def _send(inputs: list[INPUT]) -> None:
 
 
 def _key(vk: int = 0, scan: int = 0, flags: int = 0) -> INPUT:
-    return INPUT(type=INPUT_KEYBOARD, ki=KEYBDINPUT(vk, scan, flags, 0, 0))
+    return INPUT(type=INPUT_KEYBOARD, ki=KEYBDINPUT(vk, scan, flags, 0, SELF_MARK))
 
 
 def send_text(text: str) -> None:

@@ -78,6 +78,7 @@ user32.PostThreadMessageW.argtypes = [wintypes.DWORD, wintypes.UINT, wintypes.WP
 kernel32.GetModuleHandleW.restype = wintypes.HMODULE
 
 # Événements injectés (SendInput) : on ignore ceux que ce programme génère lui-même
+SELF_MARK = 0x4B4C4B44   # identique à winutil.SELF_MARK
 INJECTED = 0x10        # LLKHF_INJECTED (clavier)
 MOUSE_INJECTED = 0x01  # LLMHF_INJECTED (souris)
 
@@ -354,7 +355,8 @@ class HookManager:
         try:
             if n_code >= 0:
                 info = ctypes.cast(l_param, ctypes.POINTER(KBDLLHOOKSTRUCT)).contents
-                if not (info.flags & INJECTED):
+                # On ignore nos propres touches ; celles d'autres logiciels (remappage clavier Logitech, etc.) comptent.
+                if not (info.flags & INJECTED and info.dwExtraInfo == SELF_MARK):
                     vk = info.vkCode
                     down = w_param in (WM_KEYDOWN, WM_SYSKEYDOWN)
                     if down:
