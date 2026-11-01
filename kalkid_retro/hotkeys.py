@@ -120,8 +120,14 @@ def format_hotkey(mods: int, vk: int) -> str:
     return "+".join(parts)
 
 
-def _current_mods() -> int:
+def _current_mods(held: "set[int] | None" = None) -> int:
+    """Modificateurs enfoncés. `held` = touches modificatrices physiques suivies par le hook : fiable même si un
+    programme (dont nous) injecte un relâchement d'Alt pendant que l'utilisateur le maintient."""
     mods = 0
+    if held is not None:
+        for vk in held:
+            mods |= _MOD_KEYS.get(vk, 0)
+        return mods
     if user32.GetAsyncKeyState(0x11) & 0x8000:
         mods |= MOD_CTRL
     if user32.GetAsyncKeyState(0x12) & 0x8000:
@@ -157,6 +163,7 @@ class HookManager:
         self._swallow_middle_up = False   # relâchement du clic molette à avaler (cohérence haut/bas)
         self._lock = threading.Lock()
         self._pressed: set[int] = set()
+        self._mods_held: set[int] = set()   # modificateurs physiquement enfoncés (événements non injectés par nous)
         self._queue: queue.Queue = queue.Queue()
         self._thread: threading.Thread | None = None
         self._worker: threading.Thread | None = None
@@ -347,6 +354,8 @@ class HookManager:
     def _resume(self) -> None:
         self._suspended = False
         self._busy_since = 0.0
+        self._mods_held.clear()
+        self._pressed.clear()
         self.refresh_mouse_hook()
 
     # --- hooks ------------------------------------------------------------------
@@ -359,6 +368,11 @@ class HookManager:
                 if not (info.flags & INJECTED and info.dwExtraInfo == SELF_MARK):
                     vk = info.vkCode
                     down = w_param in (WM_KEYDOWN, WM_SYSKEYDOWN)
+                    if vk in _MOD_KEYS:
+                        if down:
+                            self._mods_held.add(vk)
+                        else:
+                            self._mods_held.discard(vk)
                     if down:
                         first = vk not in self._pressed
                         self._pressed.add(vk)
@@ -379,7 +393,7 @@ class HookManager:
                 self._click_capture = None
                 self._queue.put(click_cap[1])
             return True
-        mods = _current_mods()
+        mods = _current_mods(self._mods_held)
         cap = self._capture
         if cap is not None:
             if first:
@@ -391,12 +405,13 @@ class HookManager:
             entry = self._bindings.get((mods, vk))
         if not entry:
             return False
-        callback, only_in_game = entry
+        callback, only_in_game = entry[0], entry[1]
+        swallow = entry[2] if len(entry) > 2 else True
         if only_in_game and not self._condition():
             return False
         if first:
             self._queue.put(callback)
-        return True
+        return swallow     # False : la touche atteint aussi le jeu (ex. « passer le tour »)
 
     def _mouse_proc(self, n_code, w_param, l_param):
         # Chemin rapide : les déplacements de souris (de loin les plus fréquents) ne sont jamais examinés.

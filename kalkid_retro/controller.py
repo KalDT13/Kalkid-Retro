@@ -331,16 +331,16 @@ class Controller(QObject):
             hk.get("note", ""): (self.note_toggle.emit, in_game),
         }
         if tools.get("clicks_enabled"):
-            bindings[hk.get("click_all", "")] = (lambda: self.click_all(False), True)
+            bindings[hk.get("click_all", "")] = (lambda: self.click_all(False), True, False)   # la touche passe aussi au jeu
         if tools.get("invite_enabled"):
             bindings[hk.get("invite", "")] = (self.invite_group, True)
         # Un raccourci en Alt (ex. Alt+Échap) : on intercale une touche neutre pour que le jeu ne voie pas un
         # simple appui sur Alt (qui activerait son menu et lui volerait le focus clavier).
         wrapped = {}
-        for text, (callback, only_game) in bindings.items():
+        for text, (callback, only_game, *rest) in bindings.items():
             if text and "alt" in text.lower():
                 callback = self._alt_safe(callback)
-            wrapped[text] = (callback, only_game)
+            wrapped[text] = (callback, only_game, *rest)
         self.hooks.set_bindings({k: v for k, v in wrapped.items() if k})
         self.hooks.refresh_mouse_hook()   # le hook souris n'existe que si le clic molette est activé
 

@@ -204,8 +204,9 @@ def focus_ex(hwnd: int) -> tuple[bool, str]:
         return True, "déjà actif"
     # Niveau 1 : une pression sur Alt (injectée) autorise SetForegroundWindow
     if foreground_hwnd() != hwnd:
-        user32.keybd_event(VK_MENU, 0, 0, SELF_MARK)
-        user32.keybd_event(VK_MENU, 0, KEYEVENTF_KEYUP, SELF_MARK)
+        if not user32.GetAsyncKeyState(VK_MENU) & 0x8000:   # Alt déjà maintenu : inutile, et on ne le relâche pas
+            user32.keybd_event(VK_MENU, 0, 0, SELF_MARK)
+            user32.keybd_event(VK_MENU, 0, KEYEVENTF_KEYUP, SELF_MARK)
         user32.SetForegroundWindow(hwnd)
         if not _wait(lambda: foreground_hwnd() == hwnd, 0.15):
             # Niveau 2 : même mécanisme que le changement de fenêtre par Alt+Tab
