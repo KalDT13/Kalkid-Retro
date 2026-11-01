@@ -44,6 +44,10 @@ DEFAULTS: dict = {
         "capture_chat": "F8",
         "invite": "F9",
     },
+    "hotkey_delays": {          # délai (ms) entre l'appui sur le raccourci et le changement de fenêtre
+        "next": 0,              # 0 = instantané
+        "prev": 0,
+    },
     "hotkeys_only_in_game": True,
     "tools": {
         "clicks_enabled": False,    # désactivé par défaut (voir README)

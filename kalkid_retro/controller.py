@@ -59,6 +59,9 @@ class Controller(QObject):
         self._last_game_hwnd = 0
         self._guard_times: list[float] = []
         self.last_focus_detail = ""
+        self._cycle_lock = threading.Lock()
+        self._cycle_timer: threading.Timer | None = None
+        self._pending_steps = 0
 
         self.hooks = HookManager()
         self.hooks.set_condition(lambda: self.game_fg)
@@ -189,6 +192,31 @@ class Controller(QObject):
         if not ok or "non confirmé" in detail:
             self.log.emit("error", f"Passage sur {target.pseudo} : {detail}")
 
+    def cycle_after_delay(self, step: int, key: str) -> None:
+        """Passage à la fenêtre suivante / précédente, après le délai réglé (0 = instantané).
+
+        Plusieurs appuis pendant l'attente s'additionnent : deux appuis rapides avancent de deux fenêtres, un
+        appui « suivante » et un « précédente » s'annulent. Le choix de la fenêtre se fait à la fin du délai.
+        """
+        delay = max(0, int(self.cfg.get("hotkey_delays", key, default=0) or 0)) / 1000
+        with self._cycle_lock:
+            if delay <= 0 and self._cycle_timer is None:
+                immediate = True
+            else:
+                immediate = False
+                self._pending_steps += step
+                if self._cycle_timer is None:
+                    self._cycle_timer = threading.Timer(max(delay, 0.001), self._fire_cycle)
+                    self._cycle_timer.start()
+        if immediate:
+            self.cycle(step)
+
+    def _fire_cycle(self) -> None:
+        with self._cycle_lock:
+            steps, self._pending_steps, self._cycle_timer = self._pending_steps, 0, None
+        if steps:
+            self.cycle(steps)
+
     def focus_pseudo(self, pseudo: str) -> bool:
         # Chemin rapide : fenêtre déjà connue et toujours valide (aucune énumération des fenêtres).
         win = self.windows.get(pseudo)
@@ -297,8 +325,8 @@ class Controller(QObject):
         in_game = bool(self.cfg.get("hotkeys_only_in_game", default=True))
         tools = self.cfg.get("tools", default={})
         bindings = {
-            hk.get("next", ""): (lambda: self.cycle(1), in_game),
-            hk.get("prev", ""): (lambda: self.cycle(-1), in_game),
+            hk.get("next", ""): (lambda: self.cycle_after_delay(1, "next"), in_game),
+            hk.get("prev", ""): (lambda: self.cycle_after_delay(-1, "prev"), in_game),
             hk.get("main", ""): (self.focus_main, in_game),
             hk.get("note", ""): (self.note_toggle.emit, in_game),
         }

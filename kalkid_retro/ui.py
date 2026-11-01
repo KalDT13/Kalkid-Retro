@@ -961,9 +961,26 @@ class PrereqPage(QWidget):
 class ShortcutsPage(QWidget):
     def __init__(self, ctl: Controller):
         super().__init__()
+        def with_delay(key: str) -> QWidget:
+            """Raccourci + délai (ms) avant le changement de fenêtre : 0 = instantané."""
+            box = QWidget()
+            row = QHBoxLayout(box)
+            row.setContentsMargins(0, 0, 0, 0)
+            row.setSpacing(8)
+            delay = spin(int(ctl.cfg.get("hotkey_delays", key, default=0) or 0), 0, 5000,
+                         lambda v, k=key: ctl.cfg.set("hotkey_delays", k, v))
+            delay.setToolTip("Délai entre l'appui sur la touche et le changement de fenêtre.\n"
+                             "0 ms = le changement est instantané.")
+            row.addWidget(label("Délai", "muted"))
+            row.addWidget(delay)
+            row.addWidget(HotkeyButton(ctl, key))
+            return box
+
         left = [
-            option_row("Fenêtre suivante", "Passe au personnage suivant dans l'ordre.", HotkeyButton(ctl, "next")),
-            option_row("Fenêtre précédente", "Revient au personnage précédent.", HotkeyButton(ctl, "prev")),
+            option_row("Fenêtre suivante", "Passe au personnage suivant dans l'ordre, après le délai choisi "
+                                           "(0 ms = instantané).", with_delay("next")),
+            option_row("Fenêtre précédente", "Revient au personnage précédent, avec son propre délai.",
+                       with_delay("prev")),
         ]
         right = [
             option_row("Personnage principal", "Passe sur le personnage marqué ★.", HotkeyButton(ctl, "main")),

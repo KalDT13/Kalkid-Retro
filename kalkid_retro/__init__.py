@@ -1,4 +1,4 @@
 """Kalkid Rétro : gestionnaire de fenêtres multicompte pour Dofus Rétro."""
 
-__version__ = "0.12.0"
+__version__ = "0.13.0"
 APP_NAME = "Kalkid Rétro"
