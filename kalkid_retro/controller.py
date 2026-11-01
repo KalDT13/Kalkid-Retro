@@ -209,12 +209,14 @@ class Controller(QObject):
                     self._cycle_timer = threading.Timer(max(delay, 0.001), self._fire_cycle)
                     self._cycle_timer.start()
         if immediate:
+            self.hooks.wait_keys_released()   # le jeu doit d'abord traiter la touche (ex. « passer le tour »)
             self.cycle(step)
 
     def _fire_cycle(self) -> None:
         with self._cycle_lock:
             steps, self._pending_steps, self._cycle_timer = self._pending_steps, 0, None
         if steps:
+            self.hooks.wait_keys_released()
             self.cycle(steps)
 
     def focus_pseudo(self, pseudo: str) -> bool:

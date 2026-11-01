@@ -233,6 +233,14 @@ class HookManager:
         self._middle_enabled = enabled
         self.refresh_mouse_hook()
 
+    def wait_keys_released(self, timeout: float = 0.3) -> None:
+        """Attend (au plus `timeout` s) que les touches non modificatrices soient relâchées. À appeler depuis un
+        thread de travail, jamais depuis un callback de hook."""
+        end = time.monotonic() + timeout
+        while time.monotonic() < end and any(vk not in _MOD_KEYS for vk in tuple(self._pressed)):
+            time.sleep(0.005)
+        time.sleep(0.02)
+
     def capture_next(self, callback: Callable[[str], None]) -> None:
         """Le prochain raccourci pressé est transmis à callback (puis consommé)."""
         self._capture = callback
