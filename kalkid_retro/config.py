@@ -36,8 +36,8 @@ DEFAULTS: dict = {
         "events": {},       # pseudo -> liste d'événements actifs
     },
     "hotkeys": {
-        "next": "Alt+Esc",          # remplace l'Alt+Échap de Windows, qui s'arrêtait aussi sur les applis réduites
-        "prev": "Alt+Shift+Esc",
+        "next": "",                 # à définir (ex. Fin : passe le tour dans le jeu puis passe au compte suivant)
+        "prev": "",
         "main": "",
         "note": "",                 # afficher / masquer le pense-bête (à définir)
         "click_all": "F1",
@@ -95,6 +95,11 @@ class Config:
             try:
                 with open(self.path, "r", encoding="utf-8") as fh:
                     self.data = _merge(DEFAULTS, json.load(fh))
+                # Alt+Échap reste géré par Windows : on retire les anciens raccourcis personnalisés équivalents.
+                hk = self.data.get("hotkeys", {})
+                for name in ("next", "prev"):
+                    if str(hk.get(name, "")).lower() in ("alt+esc", "alt+shift+esc"):
+                        hk[name] = ""
             except FileNotFoundError:
                 self.data = copy.deepcopy(DEFAULTS)
             except (json.JSONDecodeError, OSError):

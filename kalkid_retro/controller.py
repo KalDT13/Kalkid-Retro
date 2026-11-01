@@ -325,31 +325,18 @@ class Controller(QObject):
         in_game = bool(self.cfg.get("hotkeys_only_in_game", default=True))
         tools = self.cfg.get("tools", default={})
         bindings = {
-            hk.get("next", ""): (lambda: self.cycle_after_delay(1, "next"), in_game),
-            hk.get("prev", ""): (lambda: self.cycle_after_delay(-1, "prev"), in_game),
-            hk.get("main", ""): (self.focus_main, in_game),
-            hk.get("note", ""): (self.note_toggle.emit, in_game),
+            # la touche atteint aussi le jeu (ex. « Fin » = passer le tour, puis on change de compte)
+            hk.get("next", ""): (lambda: self.cycle_after_delay(1, "next"), in_game, False),
+            hk.get("prev", ""): (lambda: self.cycle_after_delay(-1, "prev"), in_game, False),
+            hk.get("main", ""): (self.focus_main, in_game, False),
+            hk.get("note", ""): (self.note_toggle.emit, in_game, False),
         }
         if tools.get("clicks_enabled"):
             bindings[hk.get("click_all", "")] = (lambda: self.click_all(False), True, False)   # la touche passe aussi au jeu
         if tools.get("invite_enabled"):
             bindings[hk.get("invite", "")] = (self.invite_group, True)
-        # Un raccourci en Alt (ex. Alt+Échap) : on intercale une touche neutre pour que le jeu ne voie pas un
-        # simple appui sur Alt (qui activerait son menu et lui volerait le focus clavier).
-        wrapped = {}
-        for text, (callback, only_game, *rest) in bindings.items():
-            if text and "alt" in text.lower():
-                callback = self._alt_safe(callback)
-            wrapped[text] = (callback, only_game, *rest)
-        self.hooks.set_bindings({k: v for k, v in wrapped.items() if k})
+        self.hooks.set_bindings({k: v for k, v in bindings.items() if k})
         self.hooks.refresh_mouse_hook()   # le hook souris n'existe que si le clic molette est activé
-
-    @staticmethod
-    def _alt_safe(callback):
-        def run():
-            winutil.suppress_menu_activation()
-            callback()
-        return run
 
     def capture_hotkey(self, action: str) -> None:
         """Attend la prochaine combinaison pressée et l'enregistre pour `action`."""
